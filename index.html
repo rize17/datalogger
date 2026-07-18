@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DataLogger</title>
+
+<!-- Add-to-Home-Screen support -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#07131d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DataLogger">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #07131d;
+    --panel: #0d1f2d;
+    --panel-edge: #16324a;
+    --ink: #d7e8f2;
+    --ink-dim: #6d8ba0;
+    --aqua: #38c8e8;
+    --aqua-deep: #1596b8;
+    --amber: #e8b638;
+    --ok: #4fd08a;
+    --err: #e86a5e;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 50% -200px, #0e2a3d 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    padding: max(env(safe-area-inset-top), 12px) 14px calc(env(safe-area-inset-bottom) + 20px);
+    max-width: 560px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 2px 14px;
+  }
+  header h1 {
+    font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase;
+    font-weight: 600; color: var(--ink-dim);
+  }
+  #status {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.72rem; letter-spacing: 0.06em; color: var(--ink-dim);
+  }
+  #statusDot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--err); box-shadow: 0 0 8px var(--err);
+    transition: background .3s, box-shadow .3s;
+  }
+  #statusDot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #statusDot.wait { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+  /* ---------- meter register (signature) ---------- */
+  .register {
+    background: linear-gradient(180deg, #0f2436, #0a1a28);
+    border: 1px solid var(--panel-edge);
+    border-radius: 18px;
+    padding: 22px 18px 18px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .register::after { /* faint water line */
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: 0; height: 34%;
+    background: linear-gradient(180deg, rgba(56,200,232,0.05), rgba(56,200,232,0.13));
+    pointer-events: none;
+  }
+  .register .label {
+    font-size: 0.7rem; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 10px;
+  }
+  .odometer {
+    display: inline-flex; gap: 5px; align-items: baseline;
+  }
+  .odometer .digit {
+    font-family: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 2.5rem; font-weight: 700; line-height: 1;
+    background: #061019;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    padding: 10px 7px;
+    color: var(--aqua);
+    text-shadow: 0 0 14px rgba(56,200,232,0.45);
+    min-width: 1.35ch; text-align: center;
+  }
+  .odometer .digit.frac { color: var(--amber); text-shadow: 0 0 14px rgba(232,182,56,0.35); }
+  .odometer .sep {
+    font-size: 2rem; color: var(--ink-dim); padding: 0 1px;
+    font-family: ui-monospace, monospace;
+  }
+  .register .unit {
+    margin-top: 10px; font-size: 0.72rem; letter-spacing: 0.2em;
+    color: var(--ink-dim); text-transform: uppercase;
+  }
+
+  /* ---------- stat strip ---------- */
+  .strip {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin: 12px 0;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 14px; padding: 13px 14px;
+  }
+  .stat .k { font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+  .stat .v {
+    margin-top: 5px; font-size: 1.35rem; font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .v small { font-size: 0.75rem; color: var(--ink-dim); font-weight: 500; margin-left: 3px; }
+
+  /* ---------- chart panel ---------- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 14px; padding: 14px;
+  }
+  .panel h2 {
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim); font-weight: 600; margin-bottom: 10px;
+  }
+  #chartWrap { height: 220px; }
+  #lastUpdate {
+    margin-top: 10px; text-align: center;
+    font-size: 0.7rem; color: var(--ink-dim); letter-spacing: 0.04em;
+  }
+
+  /* ---------- settings ---------- */
+  #gear {
+    background: none; border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    border-radius: 10px; padding: 6px 10px; font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+  }
+  dialog {
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--panel-edge); border-radius: 16px;
+    width: min(92vw, 420px); padding: 20px;
+  }
+  dialog::backdrop { background: rgba(3,9,14,0.75); }
+  dialog h2 { font-size: 0.95rem; margin-bottom: 14px; font-weight: 600; }
+  dialog label {
+    display: block; font-size: 0.7rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); margin: 12px 0 4px;
+  }
+  dialog input {
+    width: 100%; background: #081420; color: var(--ink);
+    border: 1px solid var(--panel-edge); border-radius: 8px;
+    padding: 9px 10px; font-size: 0.95rem;
+  }
+  dialog input:focus { outline: 2px solid var(--aqua-deep); border-color: transparent; }
+  .hint { font-size: 0.7rem; color: var(--ink-dim); margin-top: 4px; }
+  .dlg-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .dlg-actions button {
+    flex: 1; padding: 11px; border-radius: 10px; font-size: 0.85rem;
+    cursor: pointer; border: 1px solid var(--panel-edge);
+  }
+  #saveBtn { background: var(--aqua-deep); color: #04121a; border: none; font-weight: 650; }
+  #cancelBtn { background: none; color: var(--ink-dim); }
+  #resetBtn {
+    width: 100%; margin-top: 14px; padding: 9px; border-radius: 10px;
+    background: none; border: 1px solid rgba(232,106,94,0.4);
+    color: var(--err); font-size: 0.75rem; cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DataLogger</h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
+    <button id="gear" aria-label="Settings">Set&nbsp;up</button>
+  </div>
+</header>
+
+<section class="register" aria-label="Total water usage">
+  <div class="label">Total consumption</div>
+  <div class="odometer" id="odometer" aria-live="polite"></div>
+  <div class="unit">liters</div>
+</section>
+
+<section class="strip">
+  <div class="stat"><div class="k">Today</div><div class="v" id="todayVal">0.0<small>L</small></div></div>
+  <div class="stat"><div class="k">Last 5 min</div><div class="v" id="lastVal">0.00<small>L</small></div></div>
+</section>
+
+<section class="panel">
+  <h2>Flow — 5-minute intervals</h2>
+  <div id="chartWrap"><canvas id="chart"></canvas></div>
+  <div id="lastUpdate">Waiting for first reading…</div>
+</section>
+
+<dialog id="settingsDlg">
+  <h2>Connection &amp; meter</h2>
+  <label for="inUrl">Broker WebSocket URL</label>
+  <input id="inUrl" placeholder="ws://192.168.1.100:9001" inputmode="url">
+  <div class="hint">Browsers use MQTT over WebSockets — enable a websockets listener on your broker (see guide). Use wss:// if the page is served over https.</div>
+  <label for="inTopic">Topic</label>
+  <input id="inTopic" placeholder="home/water/watermeter-01/data">
+  <label for="inUser">Username (optional)</label>
+  <input id="inUser" autocomplete="off">
+  <label for="inPass">Password (optional)</label>
+  <input id="inPass" type="password" autocomplete="off">
+  <label for="inK">Liters per pulse (K-factor)</label>
+  <input id="inK" inputmode="decimal" placeholder="1.0">
+  <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse.</div>
+  <div class="dlg-actions">
+    <button id="cancelBtn" type="button">Cancel</button>
+    <button id="saveBtn" type="button">Save &amp; connect</button>
+  </div>
+  <button id="resetBtn" type="button">Clear stored history</button>
+</dialog>
+
+<script>
+"use strict";
+
+/* ---------- storage (localStorage with in-memory fallback) ---------- */
+const store = (() => {
+  let mem = {};
+  let ok = false;
+  try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); ok = true; } catch (_) {}
+  return {
+    get(k, d) {
+      try { const v = ok ? localStorage.getItem(k) : mem[k]; return v == null ? d : JSON.parse(v); }
+      catch (_) { return d; }
+    },
+    set(k, v) {
+      try { const s = JSON.stringify(v); if (ok) localStorage.setItem(k, s); else mem[k] = s; } catch (_) {}
+    },
+    del(k) { try { if (ok) localStorage.removeItem(k); else delete mem[k]; } catch (_) {} }
+  };
+})();
+
+/* ---------- state ---------- */
+const MAX_READINGS = 288; // 24 h of 5-min intervals
+let settings = Object.assign({
+  url: "ws://192.168.1.100:9001",
+  topic: "home/water/watermeter-01/data",
+  user: "", pass: "", k: 1.0
+}, store.get("settings", {}));
+
+let readings = store.get("readings", []); // {t: epoch_ms, ip: interval_pulses, tp: total_pulses}
+let client = null;
+let chart = null;
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const fmtTime = ms => {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+};
+const totalLiters = () => readings.length ? readings[readings.length-1].tp * settings.k : 0;
+const lastLiters  = () => readings.length ? readings[readings.length-1].ip * settings.k : 0;
+const todayLiters = () => {
+  const mid = new Date(); mid.setHours(0,0,0,0);
+  return readings.filter(r => r.t >= mid.getTime())
+                 .reduce((s,r) => s + r.ip, 0) * settings.k;
+};
+
+/* ---------- odometer render ---------- */
+function renderOdometer() {
+  const v = totalLiters();
+  const [intPart, fracPart] = v.toFixed(1).split(".");
+  const padded = intPart.padStart(5, "0");
+  const el = $("odometer");
+  el.innerHTML = "";
+  for (const ch of padded) {
+    const d = document.createElement("span");
+    d.className = "digit"; d.textContent = ch;
+    el.appendChild(d);
+  }
+  const sep = document.createElement("span");
+  sep.className = "sep"; sep.textContent = ".";
+  el.appendChild(sep);
+  const f = document.createElement("span");
+  f.className = "digit frac"; f.textContent = fracPart;
+  el.appendChild(f);
+}
+
+/* ---------- chart ---------- */
+function renderChart() {
+  const visible = readings.slice(-36); // last 3 hours
+  const labels = visible.map(r => fmtTime(r.t));
+  const data = visible.map(r => +(r.ip * settings.k).toFixed(2));
+
+  if (!chart) {
+    chart = new Chart($("chart"), {
+      type: "bar",
+      data: { labels, datasets: [{
+        data,
+        backgroundColor: "rgba(56,200,232,0.55)",
+        hoverBackgroundColor: "rgba(56,200,232,0.9)",
+        borderRadius: 3, maxBarThickness: 14
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#0a1a28", borderColor: "#16324a", borderWidth: 1,
+            titleColor: "#6d8ba0", bodyColor: "#d7e8f2",
+            callbacks: { label: c => " " + c.parsed.y.toFixed(2) + " L" }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: "#6d8ba0", font: { size: 10 },
+                     maxTicksLimit: 6, maxRotation: 0 }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: "rgba(22,50,74,0.6)" },
+            ticks: { color: "#6d8ba0", font: { size: 10 } }
+          }
+        }
+      }
+    });
+  } else {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = data;
+    chart.update("none");
+  }
+}
+
+function renderAll() {
+  renderOdometer();
+  $("todayVal").innerHTML = todayLiters().toFixed(1) + "<small>L</small>";
+  $("lastVal").innerHTML  = lastLiters().toFixed(2) + "<small>L</small>";
+  renderChart();
+  if (readings.length) {
+    $("lastUpdate").textContent =
+      "Last reading " + fmtTime(readings[readings.length-1].t) +
+      " · " + readings.length + " intervals stored";
+  }
+}
+
+/* ---------- MQTT ---------- */
+function setStatus(mode, text) {
+  $("statusDot").className = mode; // "on" | "wait" | ""
+  $("statusText").textContent = text;
+}
+
+function connect() {
+  if (client) { try { client.end(true); } catch(_){} client = null; }
+  if (typeof mqtt === "undefined") { setStatus("", "mqtt.js failed to load"); return; }
+
+  setStatus("wait", "connecting…");
+  try {
+    client = mqtt.connect(settings.url, {
+      clientId: "wm-web-" + Math.random().toString(16).slice(2, 8),
+      username: settings.user || undefined,
+      password: settings.pass || undefined,
+      reconnectPeriod: 5000,
+      connectTimeout: 8000
+    });
+  } catch (e) { setStatus("", "bad URL"); return; }
+
+  client.on("connect", () => {
+    setStatus("on", "live");
+    client.subscribe(settings.topic, { qos: 1 });
+  });
+  client.on("reconnect", () => setStatus("wait", "reconnecting…"));
+  client.on("close",     () => setStatus("", "offline"));
+  client.on("error",     () => setStatus("", "connection error"));
+
+  client.on("message", (_topic, payload) => {
+    let msg;
+    try { msg = JSON.parse(payload.toString()); } catch (_) { return; }
+    if (typeof msg.total_pulses !== "number") return;
+
+    // Retained messages replay the last reading on every connect — skip duplicates
+    const last = readings[readings.length - 1];
+    if (last && last.tp === msg.total_pulses && (msg.interval_pulses|0) === last.ip) {
+      const age = Date.now() - last.t;
+      if (age < 4.5 * 60 * 1000) return;
+    }
+
+    readings.push({ t: Date.now(), ip: msg.interval_pulses|0, tp: msg.total_pulses });
+    if (readings.length > MAX_READINGS) readings = readings.slice(-MAX_READINGS);
+    store.set("readings", readings);
+    renderAll();
+  });
+}
+
+/* ---------- settings dialog ---------- */
+const dlg = $("settingsDlg");
+$("gear").onclick = () => {
+  $("inUrl").value = settings.url;
+  $("inTopic").value = settings.topic;
+  $("inUser").value = settings.user;
+  $("inPass").value = settings.pass;
+  $("inK").value = settings.k;
+  dlg.showModal();
+};
+$("cancelBtn").onclick = () => dlg.close();
+$("saveBtn").onclick = () => {
+  settings.url   = $("inUrl").value.trim();
+  settings.topic = $("inTopic").value.trim();
+  settings.user  = $("inUser").value.trim();
+  settings.pass  = $("inPass").value;
+  settings.k     = parseFloat($("inK").value) || 1.0;
+  store.set("settings", settings);
+  dlg.close();
+  renderAll();   // re-render with new K-factor
+  connect();
+};
+$("resetBtn").onclick = () => {
+  if (!confirm("Delete all stored readings on this device?")) return;
+  readings = [];
+  store.del("readings");
+  renderAll();
+  $("lastUpdate").textContent = "History cleared — waiting for next reading…";
+};
+
+/* ---------- service worker (offline shell) ---------- */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+/* ---------- boot ---------- */
+renderAll();
+connect();
+</script>
+</body>
+</html>
