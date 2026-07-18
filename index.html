@@ -13,7 +13,6 @@
 <meta name="apple-mobile-web-app-title" content="DataLogger">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
 
 <style>
   :root {
@@ -162,6 +161,16 @@
     padding: 9px 10px; font-size: 0.95rem;
   }
   dialog input:focus { outline: 2px solid var(--aqua-deep); border-color: transparent; }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px; }
+  .pw-toggle {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--ink-dim); cursor: pointer;
+    border-radius: 6px;
+  }
+  .pw-toggle:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
+  .pw-toggle svg { width: 18px; height: 18px; }
   .hint { font-size: 0.7rem; color: var(--ink-dim); margin-top: 4px; }
   .dlg-actions { display: flex; gap: 10px; margin-top: 18px; }
   .dlg-actions button {
@@ -216,7 +225,19 @@
   <label for="inUser">Username (optional)</label>
   <input id="inUser" autocomplete="off">
   <label for="inPass">Password (optional)</label>
-  <input id="inPass" type="password" autocomplete="off">
+  <div class="pw-wrap">
+    <input id="inPass" type="password" autocomplete="off">
+    <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">
+      <svg id="pwIconShow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <svg id="pwIconHide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.4 20.4 0 0 1-2.68 3.9M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+        <path d="M1 1l22 22"/>
+      </svg>
+    </button>
+  </div>
   <label for="inK">Liters per pulse (K-factor)</label>
   <input id="inK" inputmode="decimal" placeholder="1.0">
   <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse.</div>
@@ -257,7 +278,6 @@ let settings = Object.assign({
 
 let readings = store.get("readings", []); // {t: epoch_ms, ip: interval_pulses, tp: total_pulses}
 let client = null;
-let chart = null;
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -293,51 +313,132 @@ function renderOdometer() {
   el.appendChild(f);
 }
 
-/* ---------- chart ---------- */
-function renderChart() {
-  const visible = readings.slice(-36); // last 3 hours
-  const labels = visible.map(r => fmtTime(r.t));
-  const data = visible.map(r => +(r.ip * settings.k).toFixed(2));
+/* ---------- chart (plain canvas, no external libraries) ---------- */
+const canvas = $("chart");
+const ctx = canvas.getContext("2d");
+let barGeom = []; // hit-testing for tooltips: {x, y, w, h, value, label}
+let tooltip = null;
 
-  if (!chart) {
-    chart = new Chart($("chart"), {
-      type: "bar",
-      data: { labels, datasets: [{
-        data,
-        backgroundColor: "rgba(56,200,232,0.55)",
-        hoverBackgroundColor: "rgba(56,200,232,0.9)",
-        borderRadius: 3, maxBarThickness: 14
-      }]},
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "#0a1a28", borderColor: "#16324a", borderWidth: 1,
-            titleColor: "#6d8ba0", bodyColor: "#d7e8f2",
-            callbacks: { label: c => " " + c.parsed.y.toFixed(2) + " L" }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: "#6d8ba0", font: { size: 10 },
-                     maxTicksLimit: 6, maxRotation: 0 }
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: "rgba(22,50,74,0.6)" },
-            ticks: { color: "#6d8ba0", font: { size: 10 } }
-          }
-        }
-      }
-    });
-  } else {
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = data;
-    chart.update("none");
-  }
+function sizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + "px";
+  canvas.style.height = rect.height + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w: rect.width, h: rect.height };
 }
+
+function renderChart() {
+  const { w, h } = sizeCanvas();
+  ctx.clearRect(0, 0, w, h);
+  barGeom = [];
+
+  const visible = readings.slice(-36); // last 3 hours
+  if (!visible.length) return;
+
+  const values = visible.map(r => r.ip * settings.k);
+  const maxVal = Math.max(1, ...values);
+
+  const padL = 34, padR = 6, padT = 8, padB = 22;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const n = visible.length;
+  const slot = plotW / n;
+  const barW = Math.max(2, Math.min(14, slot * 0.62));
+
+  ctx.strokeStyle = "rgba(22,50,74,0.6)";
+  ctx.fillStyle = "#6d8ba0";
+  ctx.font = "10px -apple-system, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const v = (maxVal * i) / steps;
+    const y = padT + plotH - (v / maxVal) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    ctx.fillText(v.toFixed(v < 10 ? 1 : 0), padL - 6, y);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const val = values[i];
+    const barH = (val / maxVal) * plotH;
+    const cx = padL + slot * i + slot / 2;
+    const x = cx - barW / 2;
+    const y = padT + plotH - barH;
+
+    const grad = ctx.createLinearGradient(0, y, 0, padT + plotH);
+    grad.addColorStop(0, "rgba(56,200,232,0.95)");
+    grad.addColorStop(1, "rgba(56,200,232,0.45)");
+    ctx.fillStyle = grad;
+    const r = Math.min(3, barW / 2);
+    ctx.beginPath();
+    ctx.moveTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.lineTo(x + barW - r, y);
+    ctx.arcTo(x + barW, y, x + barW, y + r, r);
+    ctx.lineTo(x + barW, padT + plotH);
+    ctx.lineTo(x, padT + plotH);
+    ctx.closePath();
+    ctx.fill();
+
+    barGeom.push({ x, y: padT, w: barW, h: plotH, value: val, label: fmtTime(visible[i].t) });
+
+    if (i % 6 === 0) {
+      ctx.fillStyle = "#6d8ba0";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.font = "10px -apple-system, sans-serif";
+      ctx.fillText(fmtTime(visible[i].t), cx, h - 6);
+    }
+  }
+
+  drawTooltip();
+}
+
+function drawTooltip() {
+  if (!tooltip) return;
+  const text = tooltip.text;
+  ctx.font = "600 12px -apple-system, sans-serif";
+  const padX = 8, padY = 6;
+  const textW = ctx.measureText(text).width;
+  const boxW = textW + padX * 2;
+  const boxH = 22;
+  let bx = tooltip.x - boxW / 2;
+  bx = Math.max(4, Math.min(bx, canvas.clientWidth - boxW - 4));
+  const by = Math.max(2, tooltip.y - boxH - 8);
+
+  ctx.fillStyle = "#0a1a28";
+  ctx.strokeStyle = "#16324a";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(bx, by, boxW, boxH, 6) : ctx.rect(bx, by, boxW, boxH);
+  ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = "#d7e8f2";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, bx + boxW / 2, by + boxH / 2);
+}
+
+function handlePointer(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  const hit = barGeom.find(b => px >= b.x - 2 && px <= b.x + b.w + 2);
+  tooltip = hit ? { x: hit.x + hit.w / 2, y: py, text: hit.label + " · " + hit.value.toFixed(2) + " L" } : null;
+  renderChart();
+}
+
+canvas.addEventListener("mousemove", e => handlePointer(e.clientX, e.clientY));
+canvas.addEventListener("mouseleave", () => { tooltip = null; renderChart(); });
+canvas.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) handlePointer(t.clientX, t.clientY); }, { passive: true });
+canvas.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) handlePointer(t.clientX, t.clientY); }, { passive: true });
+window.addEventListener("resize", () => renderChart());
 
 function renderAll() {
   renderOdometer();
@@ -407,7 +508,19 @@ $("gear").onclick = () => {
   $("inUser").value = settings.user;
   $("inPass").value = settings.pass;
   $("inK").value = settings.k;
+  $("inPass").type = "password";
+  $("pwIconShow").style.display = "";
+  $("pwIconHide").style.display = "none";
+  $("pwToggle").setAttribute("aria-label", "Show password");
   dlg.showModal();
+};
+$("pwToggle").onclick = () => {
+  const pw = $("inPass");
+  const showing = pw.type === "text";
+  pw.type = showing ? "password" : "text";
+  $("pwIconShow").style.display = showing ? "" : "none";
+  $("pwIconHide").style.display = showing ? "none" : "";
+  $("pwToggle").setAttribute("aria-label", showing ? "Show password" : "Hide password");
 };
 $("cancelBtn").onclick = () => dlg.close();
 $("saveBtn").onclick = () => {
