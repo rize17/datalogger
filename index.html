@@ -44,7 +44,7 @@
   /* ---------- header ---------- */
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 2px 14px;
+    padding: 6px 2px 14px; flex-wrap: wrap; row-gap: 8px;
   }
   header h1 {
     font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase;
@@ -70,13 +70,13 @@
     padding: 22px 18px 18px;
     text-align: center;
     position: relative;
-    overflow: hidden;
   }
   .register::after { /* faint water line */
     content: "";
     position: absolute; left: 0; right: 0; bottom: 0; height: 34%;
     background: linear-gradient(180deg, rgba(56,200,232,0.05), rgba(56,200,232,0.13));
     pointer-events: none;
+    border-radius: 0 0 18px 18px;
   }
   .register .label {
     font-size: 0.7rem; letter-spacing: 0.24em; text-transform: uppercase;
@@ -84,11 +84,12 @@
   }
   .odometer {
     display: inline-flex; gap: 5px; align-items: baseline;
+    flex-wrap: wrap; justify-content: center; max-width: 100%;
   }
   .odometer .digit {
     font-family: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
     font-variant-numeric: tabular-nums;
-    font-size: 2.5rem; font-weight: 700; line-height: 1;
+    font-size: clamp(1.6rem, 8vw, 2.5rem); font-weight: 700; line-height: 1;
     background: #061019;
     border: 1px solid var(--panel-edge);
     border-radius: 8px;
@@ -109,12 +110,12 @@
 
   /* ---------- stat strip ---------- */
   .strip {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px;
     margin: 12px 0;
   }
   .stat {
     background: var(--panel); border: 1px solid var(--panel-edge);
-    border-radius: 14px; padding: 13px 14px;
+    border-radius: 14px; padding: 13px 14px; min-width: 0;
   }
   .stat .k { font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
   .stat .v {
