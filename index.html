@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger</title>
+<title>DataLogger v1.0</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -49,6 +49,11 @@
   header h1 {
     font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase;
     font-weight: 600; color: var(--ink-dim);
+  }
+  header h1 .version {
+    font-size: 0.62rem; letter-spacing: 0.04em; text-transform: none;
+    font-weight: 500; color: var(--aqua-deep); margin-left: 6px;
+    vertical-align: middle;
   }
   #status {
     display: flex; align-items: center; gap: 7px;
@@ -192,7 +197,7 @@
 <body>
 
 <header>
-  <h1>DataLogger</h1>
+  <h1>DataLogger<span class="version">v1.0</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
     <button id="gear" aria-label="Settings">Set&nbsp;up</button>
@@ -490,12 +495,12 @@ function connect() {
     try { msg = JSON.parse(payload.toString()); } catch (_) { return; }
     if (typeof msg.total_pulses !== "number") return;
 
-    // Retained messages replay the last reading on every connect — skip duplicates
+    // Retained messages replay the last reading on every (re)connect, no
+    // matter how much time has passed. seq only changes when the ESP32
+    // actually publishes something new, so it's the reliable way to tell
+    // "genuinely new reading" apart from "same old one replayed again".
     const last = readings[readings.length - 1];
-    if (last && last.tp === msg.total_pulses && (msg.interval_pulses|0) === last.ip) {
-      const age = Date.now() - last.t;
-      if (age < 4.5 * 60 * 1000) return;
-    }
+    if (last && msg.seq != null && last.seq === msg.seq) return;
 
     readings.push({ t: Date.now(), ip: msg.interval_pulses|0, tp: msg.total_pulses, seq: msg.seq });
     if (readings.length > MAX_READINGS) readings = readings.slice(-MAX_READINGS);
