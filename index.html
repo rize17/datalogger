@@ -242,6 +242,9 @@
   <label for="inK">Liters per pulse (K-factor)</label>
   <input id="inK" inputmode="decimal" placeholder="1.0">
   <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse.</div>
+  <label for="inHistory">History API URL (optional)</label>
+  <input id="inHistory" placeholder="https://watermeter-logger.you.workers.dev" inputmode="url">
+  <div class="hint">If you've deployed the always-on logger, paste its base URL here to backfill readings you missed while the app was closed. Leave blank to skip.</div>
   <div class="dlg-actions">
     <button id="cancelBtn" type="button">Cancel</button>
     <button id="saveBtn" type="button">Save &amp; connect</button>
@@ -274,7 +277,7 @@ const MAX_READINGS = 288; // 24 h of 5-min intervals
 let settings = Object.assign({
   url: "ws://192.168.1.100:9001",
   topic: "home/water/watermeter-01/data",
-  user: "", pass: "", k: 1.0
+  user: "", pass: "", k: 1.0, historyUrl: ""
 }, store.get("settings", {}));
 
 let readings = store.get("readings", []); // {t: epoch_ms, ip: interval_pulses, tp: total_pulses}
@@ -494,7 +497,7 @@ function connect() {
       if (age < 4.5 * 60 * 1000) return;
     }
 
-    readings.push({ t: Date.now(), ip: msg.interval_pulses|0, tp: msg.total_pulses });
+    readings.push({ t: Date.now(), ip: msg.interval_pulses|0, tp: msg.total_pulses, seq: msg.seq });
     if (readings.length > MAX_READINGS) readings = readings.slice(-MAX_READINGS);
     store.set("readings", readings);
     renderAll();
@@ -509,6 +512,7 @@ $("gear").onclick = () => {
   $("inUser").value = settings.user;
   $("inPass").value = settings.pass;
   $("inK").value = settings.k;
+  $("inHistory").value = settings.historyUrl;
   $("inPass").type = "password";
   $("pwIconShow").style.display = "";
   $("pwIconHide").style.display = "none";
@@ -525,15 +529,17 @@ $("pwToggle").onclick = () => {
 };
 $("cancelBtn").onclick = () => dlg.close();
 $("saveBtn").onclick = () => {
-  settings.url   = $("inUrl").value.trim();
-  settings.topic = $("inTopic").value.trim();
-  settings.user  = $("inUser").value.trim();
-  settings.pass  = $("inPass").value;
-  settings.k     = parseFloat($("inK").value) || 1.0;
+  settings.url        = $("inUrl").value.trim();
+  settings.topic      = $("inTopic").value.trim();
+  settings.user       = $("inUser").value.trim();
+  settings.pass       = $("inPass").value;
+  settings.k          = parseFloat($("inK").value) || 1.0;
+  settings.historyUrl = $("inHistory").value.trim().replace(/\/$/, "");
   store.set("settings", settings);
   dlg.close();
   renderAll();   // re-render with new K-factor
   connect();
+  backfillHistory();
 };
 $("resetBtn").onclick = () => {
   if (!confirm("Delete all stored readings on this device?")) return;
@@ -543,6 +549,39 @@ $("resetBtn").onclick = () => {
   $("lastUpdate").textContent = "History cleared — waiting for next reading…";
 };
 
+/* ---------- backfill from always-on logger (optional) ---------- */
+async function backfillHistory() {
+  if (!settings.historyUrl) return;
+
+  try {
+    const res = await fetch(`${settings.historyUrl}/history?limit=${MAX_READINGS}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const rows = await res.json();
+
+    // Merge by seq (device+seq uniquely identifies a reading); local
+    // readings win on conflict since they're already what's on screen.
+    const known = new Set(readings.map(r => r.seq));
+    const merged = readings.slice();
+    for (const row of rows) {
+      if (row.seq != null && known.has(row.seq)) continue;
+      merged.push({
+        t: row.received_at,
+        ip: row.interval_pulses || 0,
+        tp: row.total_pulses || 0,
+        seq: row.seq,
+      });
+    }
+    merged.sort((a, b) => a.t - b.t);
+    readings = merged.length > MAX_READINGS ? merged.slice(-MAX_READINGS) : merged;
+
+    store.set("readings", readings);
+    renderAll();
+  } catch (err) {
+    // Non-fatal — the app still works fine on live MQTT data alone.
+    console.warn("History backfill failed:", err);
+  }
+}
+
 /* ---------- service worker (offline shell) ---------- */
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -551,6 +590,7 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
 /* ---------- boot ---------- */
 renderAll();
 connect();
+backfillHistory();
 </script>
 </body>
 </html>
