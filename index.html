@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v1.0</title>
+<title>DataLogger v1.1</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -138,6 +138,24 @@
     font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--ink-dim); font-weight: 600; margin-bottom: 10px;
   }
+  .chart-head { margin-bottom: 8px; }
+  .view-tabs {
+    display: flex; gap: 4px; margin-top: 8px;
+    background: #081420; border: 1px solid var(--panel-edge);
+    border-radius: 10px; padding: 3px;
+  }
+  .view-tab {
+    flex: 1; padding: 7px 4px; border: none; background: none;
+    color: var(--ink-dim); font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.04em; border-radius: 7px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .view-tab.active { background: var(--aqua-deep); color: #04121a; }
+  .chart-summary {
+    min-height: 1.1em; margin-bottom: 6px; text-align: center;
+    font-size: 0.78rem; color: var(--ink); letter-spacing: 0.02em;
+  }
+  .chart-summary b { color: var(--aqua); font-weight: 700; }
   #chartWrap { height: 220px; }
   #lastUpdate {
     margin-top: 10px; text-align: center;
@@ -197,7 +215,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v1.0</span></h1>
+  <h1>DataLogger<span class="version">v1.1</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
     <button id="gear" aria-label="Settings">Set&nbsp;up</button>
@@ -216,7 +234,16 @@
 </section>
 
 <section class="panel">
-  <h2>Flow — 5-minute intervals</h2>
+  <div class="chart-head">
+    <h2 id="chartTitle">Flow — 5-minute intervals</h2>
+    <div class="view-tabs" id="viewTabs">
+      <button class="view-tab active" data-view="live">Live</button>
+      <button class="view-tab" data-view="day">Day</button>
+      <button class="view-tab" data-view="week">Week</button>
+      <button class="view-tab" data-view="month">Month</button>
+    </div>
+  </div>
+  <div id="chartSummary" class="chart-summary"></div>
   <div id="chartWrap"><canvas id="chart"></canvas></div>
   <div id="lastUpdate">Waiting for first reading…</div>
 </section>
@@ -339,23 +366,42 @@ function sizeCanvas() {
   return { w: rect.width, h: rect.height };
 }
 
+// Current view state: "live" | "day" | "week" | "month"
+let currentView = "live";
+// Bars for the non-live views: [{ value: liters, label: "Mon", full: "Mon 14" }]
+let aggregateBars = [];
+
+// Build the bar list for whatever view is active.
+function currentBars() {
+  if (currentView === "live") {
+    const visible = readings.slice(-36); // last 3 hours
+    return visible.map(r => ({
+      value: r.ip * settings.k,
+      label: fmtTime(r.t),
+      full: fmtTime(r.t),
+      labelEvery: 6,
+    }));
+  }
+  return aggregateBars;
+}
+
 function renderChart() {
   const { w, h } = sizeCanvas();
   ctx.clearRect(0, 0, w, h);
   barGeom = [];
 
-  const visible = readings.slice(-36); // last 3 hours
-  if (!visible.length) return;
+  const bars = currentBars();
+  if (!bars.length) return;
 
-  const values = visible.map(r => r.ip * settings.k);
+  const values = bars.map(b => b.value);
   const maxVal = Math.max(1, ...values);
 
   const padL = 34, padR = 6, padT = 8, padB = 22;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
-  const n = visible.length;
+  const n = bars.length;
   const slot = plotW / n;
-  const barW = Math.max(2, Math.min(14, slot * 0.62));
+  const barW = Math.max(2, Math.min(18, slot * 0.62));
 
   ctx.strokeStyle = "rgba(22,50,74,0.6)";
   ctx.fillStyle = "#6d8ba0";
@@ -372,6 +418,12 @@ function renderChart() {
     ctx.stroke();
     ctx.fillText(v.toFixed(v < 10 ? 1 : 0), padL - 6, y);
   }
+
+  // Label roughly every ~6 bars in live view; for day/week/month, aim for
+  // about 6-8 labels total so they don't collide.
+  const labelEvery = currentView === "live"
+    ? 6
+    : Math.max(1, Math.round(n / 7));
 
   for (let i = 0; i < n; i++) {
     const val = values[i];
@@ -395,14 +447,18 @@ function renderChart() {
     ctx.closePath();
     ctx.fill();
 
-    barGeom.push({ x, y: padT, w: barW, h: plotH, value: val, label: fmtTime(visible[i].t) });
+    barGeom.push({
+      x, y: padT, w: barW, h: plotH,
+      value: val,
+      label: (bars[i].full || bars[i].label),
+    });
 
-    if (i % 6 === 0) {
+    if (i % labelEvery === 0) {
       ctx.fillStyle = "#6d8ba0";
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
       ctx.font = "10px -apple-system, sans-serif";
-      ctx.fillText(fmtTime(visible[i].t), cx, h - 6);
+      ctx.fillText(bars[i].label, cx, h - 6);
     }
   }
 
@@ -586,6 +642,85 @@ async function backfillHistory() {
     console.warn("History backfill failed:", err);
   }
 }
+
+/* ---------- history views (Day / Week / Month) ---------- */
+
+const VIEW_CONFIG = {
+  day:   { bucket: "hour", days: 1,  title: "Usage — hourly (today)" },
+  week:  { bucket: "day",  days: 7,  title: "Usage — daily (7 days)" },
+  month: { bucket: "day",  days: 30, title: "Usage — daily (30 days)" },
+};
+
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+async function loadView(view) {
+  currentView = view;
+
+  // Update tab highlighting + title
+  document.querySelectorAll(".view-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.view === view));
+
+  if (view === "live") {
+    $("chartTitle").textContent = "Flow — 5-minute intervals";
+    $("chartSummary").innerHTML = "";
+    aggregateBars = [];
+    renderChart();
+    return;
+  }
+
+  const cfg = VIEW_CONFIG[view];
+  $("chartTitle").textContent = cfg.title;
+
+  if (!settings.historyUrl) {
+    $("chartSummary").innerHTML = "Set a History API URL in Set up to see this view.";
+    aggregateBars = [];
+    renderChart();
+    return;
+  }
+
+  $("chartSummary").textContent = "Loading…";
+  const since = Date.now() - cfg.days * 24 * 60 * 60 * 1000;
+
+  try {
+    const res = await fetch(
+      `${settings.historyUrl}/aggregate?bucket=${cfg.bucket}&since=${since}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const rows = await res.json();
+
+    aggregateBars = rows.map(row => {
+      const liters = (row.pulses || 0) * settings.k;
+      // row.bucket is "YYYY-MM-DDTHH:00" (hour) or "YYYY-MM-DD" (day)
+      const d = new Date(row.bucket.length > 10 ? row.bucket + ":00" : row.bucket + "T00:00:00");
+      let label, full;
+      if (cfg.bucket === "hour") {
+        label = String(d.getHours()).padStart(2, "0") + ":00";
+        full = label;
+      } else {
+        label = `${DOW[d.getDay()]} ${d.getDate()}`;
+        full = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+      }
+      return { value: liters, label, full };
+    });
+
+    // Summary: total + daily average
+    const totalL = aggregateBars.reduce((s, b) => s + b.value, 0);
+    const dailyAvg = totalL / cfg.days;
+    $("chartSummary").innerHTML =
+      `Total <b>${totalL.toFixed(0)} L</b> · avg <b>${dailyAvg.toFixed(0)} L</b>/day`;
+
+    renderChart();
+  } catch (err) {
+    console.warn("View load failed:", err);
+    $("chartSummary").textContent = "Couldn't load history — check the History API URL.";
+    aggregateBars = [];
+    renderChart();
+  }
+}
+
+$("viewTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".view-tab");
+  if (btn) loadView(btn.dataset.view);
+});
 
 /* ---------- service worker (offline shell) ---------- */
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
