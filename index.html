@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v1.1</title>
+<title>DataLogger v1.2</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -215,7 +215,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v1.1</span></h1>
+  <h1>DataLogger<span class="version">v1.2</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
     <button id="gear" aria-label="Settings">Set&nbsp;up</button>
@@ -321,6 +321,22 @@ const fmtTime = ms => {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
 };
+const isSameDay = (a, b) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+// "Today" / "Yesterday" / "Mon 14 Jul" — used so a stale chart can't be
+// mistaken for a live one.
+const fmtDayLabel = ms => {
+  const d = new Date(ms);
+  const now = new Date();
+  if (isSameDay(d, now)) return "Today";
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (isSameDay(d, yest)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+};
 const totalLiters = () => readings.length ? readings[readings.length-1].tp * settings.k : 0;
 const lastLiters  = () => readings.length ? readings[readings.length-1].ip * settings.k : 0;
 const todayLiters = () => {
@@ -375,12 +391,20 @@ let aggregateBars = [];
 function currentBars() {
   if (currentView === "live") {
     const visible = readings.slice(-36); // last 3 hours
-    return visible.map(r => ({
-      value: r.ip * settings.k,
-      label: fmtTime(r.t),
-      full: fmtTime(r.t),
-      labelEvery: 6,
-    }));
+    // If the visible window spans more than one calendar day (e.g. stale data
+    // from yesterday, or an overnight gap), include the date in the axis
+    // labels so it's never ambiguous which day a bar belongs to.
+    const spansDays = visible.length > 1 &&
+      !isSameDay(new Date(visible[0].t), new Date(visible[visible.length - 1].t));
+    return visible.map(r => {
+      const d = new Date(r.t);
+      const dayPart = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      return {
+        value: r.ip * settings.k,
+        label: spansDays ? `${dayPart} ${fmtTime(r.t)}` : fmtTime(r.t),
+        full: `${fmtDayLabel(r.t)} ${fmtTime(r.t)}`,
+      };
+    });
   }
   return aggregateBars;
 }
@@ -509,11 +533,19 @@ function renderAll() {
   renderOdometer();
   $("todayVal").innerHTML = todayLiters().toFixed(1) + "<small>L</small>";
   $("lastVal").innerHTML  = lastLiters().toFixed(2) + "<small>L</small>";
+  if (currentView === "live") refreshLiveSummary();
   renderChart();
   if (readings.length) {
-    $("lastUpdate").textContent =
-      "Last reading " + fmtTime(readings[readings.length-1].t) +
-      " · " + readings.length + " intervals stored";
+    const lastT = readings[readings.length-1].t;
+    const ageMin = (Date.now() - lastT) / 60000;
+    const when = `${fmtDayLabel(lastT)} ${fmtTime(lastT)}`;
+    // The ESP32 publishes every 5 min; >15 min without one means something's
+    // up (device off, WiFi down), so say so rather than showing a stale
+    // number as though it were current.
+    const stale = ageMin > 15;
+    $("lastUpdate").innerHTML = stale
+      ? `<span style="color:var(--amber)">⚠ No data since ${when}</span> · ${readings.length} intervals stored`
+      : `Last reading ${when} · ${readings.length} intervals stored`;
   }
 }
 
@@ -653,6 +685,17 @@ const VIEW_CONFIG = {
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Date range shown above the Live chart — refreshed on every new reading
+// so it can't drift out of sync with what's actually plotted.
+function refreshLiveSummary() {
+  const visible = readings.slice(-36);
+  if (!visible.length) { $("chartSummary").innerHTML = ""; return; }
+  const firstDay = fmtDayLabel(visible[0].t);
+  const lastDay = fmtDayLabel(visible[visible.length - 1].t);
+  const range = firstDay === lastDay ? firstDay : `${firstDay} → ${lastDay}`;
+  $("chartSummary").innerHTML = `<b>${range}</b>`;
+}
+
 async function loadView(view) {
   currentView = view;
 
@@ -662,7 +705,7 @@ async function loadView(view) {
 
   if (view === "live") {
     $("chartTitle").textContent = "Flow — 5-minute intervals";
-    $("chartSummary").innerHTML = "";
+    refreshLiveSummary();
     aggregateBars = [];
     renderChart();
     return;
