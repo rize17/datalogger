@@ -45,10 +45,14 @@ web app ← D1 (/history, /aggregate) for backfill and Day/Week/Month views
   editor can't run `npm install`, so the Worker hand-writes the MQTT 3.1.1
   packets over a native WebSocket. Do not reintroduce the `mqtt` package into
   `index-dashboard.js`.
-- **The Worker's endpoints have no auth, and `/poll` writes.** `fetch()` checks
-  only the pathname, and CORS is `*`. `/poll` opens a broker connection and
-  inserts a D1 row on an anonymous GET. Don't add new routes assuming a caller
-  is trusted; see HANDOVER's trade-offs for how to close this properly.
+- **New Worker routes that return data or write must go in `PROTECTED_PATHS`.**
+  Auth is an allowlist at the top of `fetch()`, not a default — a route added
+  without being listed is public. `/poll` is a GET that causes writes, which is
+  why it's protected too. The check fails closed (503) when `API_KEY` is unset;
+  keep it that way rather than falling back to open.
+- **`ALLOWED_ORIGINS` is not the access control.** CORS only constrains
+  browsers. `API_KEY` is what actually protects the endpoints — don't "simplify"
+  by dropping the key check and relying on the origin allowlist.
 - **Workers `fetch()` can't load `wss://`.** Use `https://` for the MQTT URL in
   the Worker; the `Upgrade` header does the WebSocket switch. (This one silently
   wasted a debugging session.)
@@ -69,7 +73,7 @@ web app ← D1 (/history, /aggregate) for backfill and Day/Week/Month views
 
 ## Versioning
 
-The web app shows a version badge in its header (currently **v1.2**). Bump both
+The web app shows a version badge in its header (currently **v1.3**). Bump both
 the `<title>` and the `.version` span on every functional change — it's how we
 confirm a GitHub Pages deploy actually took effect (Pages caches aggressively;
 a hard-refresh may be needed).

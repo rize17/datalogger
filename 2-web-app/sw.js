@@ -1,5 +1,5 @@
 // Minimal offline shell cache
-const CACHE = "watermeter-v1";
+const CACHE = "watermeter-v1.3";
 const ASSETS = ["./index.html", "./manifest.webmanifest"];
 
 self.addEventListener("install", e => {

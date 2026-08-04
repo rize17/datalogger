@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v1.2</title>
+<title>DataLogger v1.3</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -215,7 +215,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v1.2</span></h1>
+  <h1>DataLogger<span class="version">v1.3</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
     <button id="gear" aria-label="Settings">Set&nbsp;up</button>
@@ -277,6 +277,9 @@
   <label for="inHistory">History API URL (optional)</label>
   <input id="inHistory" placeholder="https://watermeter-logger.you.workers.dev" inputmode="url">
   <div class="hint">If you've deployed the always-on logger, paste its base URL here to backfill readings you missed while the app was closed. Leave blank to skip.</div>
+  <label for="inApiKey">History API key</label>
+  <input id="inApiKey" type="password" autocomplete="off">
+  <div class="hint">Must match the <code>API_KEY</code> secret set on the Worker, otherwise history requests are refused. Sent as a header, never in the URL.</div>
   <div class="dlg-actions">
     <button id="cancelBtn" type="button">Cancel</button>
     <button id="saveBtn" type="button">Save &amp; connect</button>
@@ -309,7 +312,7 @@ const MAX_READINGS = 288; // 24 h of 5-min intervals
 let settings = Object.assign({
   url: "ws://192.168.1.100:9001",
   topic: "home/water/watermeter-01/data",
-  user: "", pass: "", k: 1.0, historyUrl: ""
+  user: "", pass: "", k: 1.0, historyUrl: "", apiKey: ""
 }, store.get("settings", {}));
 
 let readings = store.get("readings", []); // {t: epoch_ms, ip: interval_pulses, tp: total_pulses}
@@ -606,6 +609,7 @@ $("gear").onclick = () => {
   $("inPass").value = settings.pass;
   $("inK").value = settings.k;
   $("inHistory").value = settings.historyUrl;
+  $("inApiKey").value = settings.apiKey;
   $("inPass").type = "password";
   $("pwIconShow").style.display = "";
   $("pwIconHide").style.display = "none";
@@ -628,6 +632,7 @@ $("saveBtn").onclick = () => {
   settings.pass       = $("inPass").value;
   settings.k          = parseFloat($("inK").value) || 1.0;
   settings.historyUrl = $("inHistory").value.trim().replace(/\/$/, "");
+  settings.apiKey     = $("inApiKey").value.trim();
   store.set("settings", settings);
   dlg.close();
   renderAll();   // re-render with new K-factor
@@ -643,13 +648,29 @@ $("resetBtn").onclick = () => {
 };
 
 /* ---------- backfill from always-on logger (optional) ---------- */
+
+// The key goes in a header rather than the query string so it doesn't end up
+// in server logs or browser history. Only send it when one is set — an empty
+// custom header would still trigger a CORS preflight, which an older logger
+// (deployed before auth existed) wouldn't answer correctly.
+function historyHeaders() {
+  return settings.apiKey ? { "X-API-Key": settings.apiKey } : {};
+}
+
+// 401 = wrong/absent key, 503 = Worker has no API_KEY configured. Both mean
+// "fix the key", which is a different user action from a URL typo.
+async function fetchHistoryApi(path) {
+  const res = await fetch(`${settings.historyUrl}${path}`, { headers: historyHeaders() });
+  if (res.status === 401 || res.status === 503) throw new Error("AUTH");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
 async function backfillHistory() {
   if (!settings.historyUrl) return;
 
   try {
-    const res = await fetch(`${settings.historyUrl}/history?limit=${MAX_READINGS}`);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const rows = await res.json();
+    const rows = await fetchHistoryApi(`/history?limit=${MAX_READINGS}`);
 
     // Merge by seq (device+seq uniquely identifies a reading); local
     // readings win on conflict since they're already what's on screen.
@@ -670,8 +691,11 @@ async function backfillHistory() {
     store.set("readings", readings);
     renderAll();
   } catch (err) {
-    // Non-fatal — the app still works fine on live MQTT data alone.
-    console.warn("History backfill failed:", err);
+    // Non-fatal — the app still works fine on live MQTT data alone. The
+    // Day/Week/Month views surface the reason visibly if it's the key.
+    console.warn(err.message === "AUTH"
+      ? "History backfill refused — check the History API key in Set up."
+      : "History backfill failed:", err);
   }
 }
 
@@ -725,10 +749,8 @@ async function loadView(view) {
   const since = Date.now() - cfg.days * 24 * 60 * 60 * 1000;
 
   try {
-    const res = await fetch(
-      `${settings.historyUrl}/aggregate?bucket=${cfg.bucket}&since=${since}`);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const rows = await res.json();
+    const rows = await fetchHistoryApi(
+      `/aggregate?bucket=${cfg.bucket}&since=${since}`);
 
     aggregateBars = rows.map(row => {
       const liters = (row.pulses || 0) * settings.k;
@@ -754,7 +776,9 @@ async function loadView(view) {
     renderChart();
   } catch (err) {
     console.warn("View load failed:", err);
-    $("chartSummary").textContent = "Couldn't load history — check the History API URL.";
+    $("chartSummary").textContent = err.message === "AUTH"
+      ? "History API key missing or wrong — fix it in Set up."
+      : "Couldn't load history — check the History API URL.";
     aggregateBars = [];
     renderChart();
   }

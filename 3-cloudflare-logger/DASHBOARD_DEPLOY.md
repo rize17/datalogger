@@ -50,7 +50,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_device_seq ON readings(device, seq);
 - Same **Settings** page → **Variables and Secrets** → **Add**
 - Add `MQTT_USER` = your HiveMQ username → mark as **Secret** (encrypted)
 - Add `MQTT_PASS` = your HiveMQ password → mark as **Secret**
+- Add `API_KEY` = a long random string → mark as **Secret**
 - Save (this redeploys the Worker automatically)
+
+`API_KEY` is what protects `/history`, `/aggregate` and `/poll` — without it
+anyone who learns the Worker's URL can read your data and trigger writes. The
+Worker **fails closed**: if `API_KEY` isn't set those routes return 503 rather
+than serving unauthenticated. Generate one with:
+
+```bash
+openssl rand -base64 32
+```
 
 ## 7. Add the cron schedule
 
@@ -66,16 +76,39 @@ Your Worker has a URL shown at the top of its dashboard page, something like:
 https://watermeter-logger.<your-subdomain>.workers.dev
 ```
 
-Visit `<that URL>/poll` once in your browser — triggers an immediate check.
-Then visit `<that URL>/history` — you should see one reading in the response.
+These routes need the key, so append `?key=<your API_KEY>`:
+
+Visit `<that URL>/poll?key=...` once in your browser — triggers an immediate
+check. Then visit `<that URL>/history?key=...` — you should see one reading.
+
+Without the key you get `401 Unauthorized`, which is the quickest way to
+confirm the protection is actually on:
+
+```bash
+curl -i https://watermeter-logger.<your-subdomain>.workers.dev/history
+```
+
+The `?key=` form is for convenience in a browser address bar; query strings
+end up in logs and history, so prefer the header for anything automated:
+
+```bash
+curl -H "X-API-Key: <your API_KEY>" https://watermeter-logger.<your-subdomain>.workers.dev/history
+```
 
 After this, the cron trigger handles everything automatically every 5
-minutes — nothing left to visit or maintain.
+minutes — nothing left to visit or maintain. The cron path doesn't go through
+the auth check, so scheduled logging keeps working regardless.
 
 ## 9. Point the app at it
 
-Same **History API URL** field in the DataLogger app's Set up screen —
-paste the Worker's base URL there.
+In the DataLogger app's Set up screen, paste the Worker's base URL into
+**History API URL**, and the same `API_KEY` value into **History API key**.
+The app sends it as an `X-API-Key` header. If the key is missing or wrong the
+Day/Week/Month views say so explicitly rather than failing silently.
+
+Note that `ALLOWED_ORIGINS` at the top of the Worker lists which browser
+origins may read the API. If you serve the app from somewhere other than
+`https://rize17.github.io`, add that origin there too.
 
 ## Troubleshooting
 

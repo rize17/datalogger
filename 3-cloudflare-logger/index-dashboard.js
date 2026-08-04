@@ -10,10 +10,72 @@ const MQTT_URL = "https://YOUR_CLUSTER.s1.eu.hivemq.cloud:8884/mqtt";
 const MQTT_TOPIC = "home/water/watermeter-01/data";
 const FETCH_TIMEOUT_MS = 10_000;
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-};
+// Browser origins allowed to read the API. This is a second line of defence,
+// not the control — CORS only constrains browsers, so it does nothing against
+// curl. API_KEY is what actually protects these endpoints.
+const ALLOWED_ORIGINS = [
+  "https://rize17.github.io",
+];
+
+// Routes that return data or cause writes. Everything listed here needs the
+// key; "/" stays open so there's still a no-secret liveness check.
+const PROTECTED_PATHS = ["/history", "/aggregate", "/poll"];
+
+/* ---------- auth + CORS ---------- */
+
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  const headers = {
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "X-API-Key",
+    "Access-Control-Max-Age": "86400",
+    // Responses differ by Origin, so caches must not share them.
+    "Vary": "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+// Compares in time independent of how many leading characters match, so the
+// key can't be recovered one character at a time. Length still leaks, which
+// doesn't matter for a random key of fixed length.
+function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) diff |= aBytes[i] ^ bBytes[i];
+  return diff === 0;
+}
+
+// Returns a Response to send back if the request should be refused, or null
+// to let it through.
+function authorize(request, url, env, cors) {
+  if (!PROTECTED_PATHS.includes(url.pathname)) return null;
+
+  // Fail closed. If the secret was never configured the endpoints must stop
+  // working, not silently stay open to everyone.
+  if (!env.API_KEY) {
+    return new Response("Worker misconfigured: API_KEY is not set\n", {
+      status: 503,
+      headers: cors,
+    });
+  }
+
+  // Header is preferred; ?key= exists so /poll and /history stay testable
+  // from a browser address bar. Query strings land in logs, so use the
+  // header for anything automated.
+  const supplied =
+    request.headers.get("X-API-Key") || url.searchParams.get("key") || "";
+
+  if (!timingSafeEqual(supplied, env.API_KEY)) {
+    return new Response("Unauthorized\n", { status: 401, headers: cors });
+  }
+  return null;
+}
 
 /* ---------- MQTT packet encoding helpers ---------- */
 
@@ -190,11 +252,15 @@ async function logReading(env) {
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    const cors = corsHeaders(request);
+
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
+      return new Response(null, { headers: cors });
     }
 
-    const url = new URL(request.url);
+    const denied = authorize(request, url, env, cors);
+    if (denied) return denied;
 
     if (url.pathname === "/history") {
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "288", 10), 1000);
@@ -203,7 +269,7 @@ export default {
          FROM readings ORDER BY id DESC LIMIT ?`
       ).bind(limit).all();
       return new Response(JSON.stringify(results.reverse()), {
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...cors },
       });
     }
 
@@ -232,16 +298,19 @@ export default {
       ).bind(since).all();
 
       return new Response(JSON.stringify(results), {
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...cors },
       });
     }
 
     if (url.pathname === "/poll") {
       await logReading(env);
-      return new Response("ok", { headers: CORS_HEADERS });
+      return new Response("ok", { headers: cors });
     }
 
-    return new Response("watermeter-logger: use /history or /poll", { headers: CORS_HEADERS });
+    return new Response(
+      "watermeter-logger: /history, /aggregate and /poll require an API key\n",
+      { headers: cors }
+    );
   },
 
   async scheduled(_event, env, ctx) {

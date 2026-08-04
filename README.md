@@ -48,8 +48,12 @@ Worker, and keep the filled-in versions out of git. The web app never stores
 credentials in the repo at all — the broker host, username and password are
 entered on its **Set up** screen and kept in the browser's local storage.
 
+The Cloudflare Worker's `/history`, `/aggregate` and `/poll` endpoints require
+an `API_KEY` shared secret (`X-API-Key` header) and fail closed if it isn't
+configured — see `3-cloudflare-logger/DASHBOARD_DEPLOY.md`.
+
 ## Versioning
 
 The web app shows a version badge in its header. Bump it on every functional
 change — it's how you confirm a GitHub Pages deploy actually landed.
-Current: **v1.2**.
+Current: **v1.3**.

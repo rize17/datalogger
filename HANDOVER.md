@@ -94,9 +94,35 @@ close to the free tier's 500 MB per-database limit (see prior discussion;
 this would take several decades to become relevant). No pruning needed for
 the foreseeable future.
 
-## Known trade-offs and gaps
+## Worker API authentication
 
-The first three are deliberate choices; the last is an open gap.
+`/history`, `/aggregate` and `/poll` require a shared secret, held as the
+`API_KEY` secret in the Worker's Variables and Secrets.
+
+- Supplied as an `X-API-Key` header (what the app sends), or `?key=` for
+  testing from a browser address bar. Query strings land in logs, so the
+  header is preferred anywhere it's automated.
+- Compared in constant time, so the key can't be recovered a character at a
+  time by measuring response latency.
+- **Fails closed:** if `API_KEY` isn't configured the protected routes return
+  503 rather than serving to everyone. A missing secret can't silently
+  reopen the endpoints.
+- `/` stays public — it returns a banner and no data, so there's still a
+  liveness check that needs no secret.
+- The cron path (`scheduled()`) never goes through `fetch()`, so five-minute
+  logging is unaffected by any of this.
+- `ALLOWED_ORIGINS` restricts which browser origins may read responses. This
+  is defence in depth, not the control: CORS constrains browsers only and
+  does nothing against `curl`. The key is the control.
+
+`/poll` deserves particular note: it's a GET that causes writes — each hit
+opens a broker connection and inserts a D1 row. That's exactly why it's behind
+the key, and why `INSERT OR IGNORE` on `seq` keeps repeated calls from
+corrupting the series.
+
+## Known trade-offs
+
+All deliberate choices.
 
 - **Broker credentials are held client-side by the web app.** They are not in
   the repo — they're typed into the Set up screen and kept in the browser's
@@ -109,25 +135,12 @@ The first three are deliberate choices; the last is an open gap.
   just not pinned to HiveMQ's specific certificate.
 - **The web app's live view depends on the app being open.** The Cloudflare
   logger exists specifically to cover the gap when it isn't.
-- **The Worker's endpoints are unauthenticated** — and unlike the items above,
-  this one is a gap rather than a considered choice. `/history`, `/aggregate`
-  and `/poll` check nothing but the path, and every response carries
-  `Access-Control-Allow-Origin: *`, so any site can read them from a visitor's
-  browser. The only thing protecting the data is that the `workers.dev` URL
-  isn't published — but it is visible to anyone who inspects the app, since
-  the browser fetches it directly.
-  - Exposure is modest: pulse counts only, no liters, no location. It is
-    still a reliable occupancy signal — when water is used, and so when
-    someone is home.
-  - `/poll` is the sharper edge. It is a **GET that causes writes**: each hit
-    opens a broker connection and inserts a D1 row. Repeated calls could
-    burn D1 writes and eat into HiveMQ's free-tier connection allowance.
-    `INSERT OR IGNORE` on `seq` keeps the data itself from being corrupted.
-  - To close it: require a shared secret header (or `?key=`) checked at the
-    top of `fetch()`, keep it in Worker Variables and Secrets alongside
-    `MQTT_USER`/`MQTT_PASS`, and have the app send it from its Set up screen.
-    Restricting `Access-Control-Allow-Origin` to the Pages origin is worth
-    doing too, but is not a substitute — CORS only constrains browsers.
+- **The Worker's `/history` data is only as private as its API key.** The
+  endpoints were unauthenticated until v1.3; they now require a shared secret
+  (see below). A leaked key exposes pulse counts — no liters, no location, but
+  a reliable occupancy signal, since water use implies someone is home.
+  Rotating it means changing `API_KEY` in the Worker and the app's Set up
+  screen; there's nothing else to coordinate.
 
 ## If something needs changing later
 
