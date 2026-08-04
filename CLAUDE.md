@@ -56,8 +56,12 @@ web app ← D1 (/history, /aggregate) for backfill and Day/Week/Month views
 - **TLS is set to skip cert validation** (`setInsecure()` on the device, and the
   equivalent in the Worker). Encrypted but not pinned — acceptable for a
   personal project, flagged here so it's a conscious choice.
-- **Broker credentials live in client-side code** (app + firmware). Fine for
-  single-user personal use; would need a backend proxy to go multi-user/public.
+- **Broker credentials are held client-side, but never committed.** The app
+  takes them from its Set up screen into localStorage — `index.html` has
+  nothing hardcoded, so don't "helpfully" add defaults for the host or user.
+  The firmware does hold them inline, which is why its values are placeholders
+  here. Fine for single-user personal use; would need a backend proxy to go
+  multi-user/public.
 
 ## Versioning
 

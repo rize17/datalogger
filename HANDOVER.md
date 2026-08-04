@@ -16,7 +16,7 @@ flowchart LR
     BTN[Test button] -->|press| ESP
     ESP -->|publish, 5 min| MQTT[HiveMQ Cloud broker]
     MQTT -->|live, instant| APP[DataLogger web app]
-    CRON[Cloudflare Worker\ncron, 5 min] -->|poll retained msg| MQTT
+    CRON["Cloudflare Worker<br/>cron, 5 min"] -->|poll retained msg| MQTT
     CRON -->|write| D1[(Cloudflare D1)]
     APP -->|fetch on load only| D1
 ```
@@ -96,9 +96,12 @@ the foreseeable future.
 
 ## Known trade-offs (by design, not oversights)
 
-- **Broker credentials live in the web app's client-side code.** Acceptable
-  for a single-user hobby project; would need a backend proxy for anything
-  multi-user or public-facing.
+- **Broker credentials are held client-side by the web app.** They are not in
+  the repo — they're typed into the Set up screen and kept in the browser's
+  local storage — but the browser still authenticates to the broker directly,
+  so anyone with access to the device can read them out of local storage.
+  Acceptable for a single-user hobby project; would need a backend proxy for
+  anything multi-user or public-facing.
 - **TLS certificate validation is skipped** (`setInsecure()` / equivalent) on
   both the firmware and the Cloudflare Worker. Traffic is still encrypted,
   just not pinned to HiveMQ's specific certificate.
@@ -111,7 +114,10 @@ the foreseeable future.
   reflash.
 - **Different K-factor:** app's Set up screen only — no firmware or
   Cloudflare changes needed.
-- **New broker credentials:** update in three places — firmware, app Set up
-  screen, and the Cloudflare Worker's Settings → Variables and Secrets.
+- **New broker credentials:** update in four places — `SECRETS.local.md` (the
+  local record), the firmware's `MQTT_USER`/`MQTT_PASS` before flashing, the
+  app's Set up screen, and the Cloudflare Worker's Settings → Variables and
+  Secrets. A new *cluster* also means changing `MQTT_HOST` in the firmware and
+  `MQTT_URL` in the Worker — both are placeholders in this repo.
 - **Test without the real sensor:** flip `TEST_MODE` to `true` in the
   firmware (currently `false`) — generates fake pulses every ~20s.
