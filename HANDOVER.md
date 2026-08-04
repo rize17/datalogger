@@ -94,7 +94,9 @@ close to the free tier's 500 MB per-database limit (see prior discussion;
 this would take several decades to become relevant). No pruning needed for
 the foreseeable future.
 
-## Known trade-offs (by design, not oversights)
+## Known trade-offs and gaps
+
+The first three are deliberate choices; the last is an open gap.
 
 - **Broker credentials are held client-side by the web app.** They are not in
   the repo — they're typed into the Set up screen and kept in the browser's
@@ -107,6 +109,25 @@ the foreseeable future.
   just not pinned to HiveMQ's specific certificate.
 - **The web app's live view depends on the app being open.** The Cloudflare
   logger exists specifically to cover the gap when it isn't.
+- **The Worker's endpoints are unauthenticated** — and unlike the items above,
+  this one is a gap rather than a considered choice. `/history`, `/aggregate`
+  and `/poll` check nothing but the path, and every response carries
+  `Access-Control-Allow-Origin: *`, so any site can read them from a visitor's
+  browser. The only thing protecting the data is that the `workers.dev` URL
+  isn't published — but it is visible to anyone who inspects the app, since
+  the browser fetches it directly.
+  - Exposure is modest: pulse counts only, no liters, no location. It is
+    still a reliable occupancy signal — when water is used, and so when
+    someone is home.
+  - `/poll` is the sharper edge. It is a **GET that causes writes**: each hit
+    opens a broker connection and inserts a D1 row. Repeated calls could
+    burn D1 writes and eat into HiveMQ's free-tier connection allowance.
+    `INSERT OR IGNORE` on `seq` keeps the data itself from being corrupted.
+  - To close it: require a shared secret header (or `?key=`) checked at the
+    top of `fetch()`, keep it in Worker Variables and Secrets alongside
+    `MQTT_USER`/`MQTT_PASS`, and have the app send it from its Set up screen.
+    Restricting `Access-Control-Allow-Origin` to the Pages origin is worth
+    doing too, but is not a substitute — CORS only constrains browsers.
 
 ## If something needs changing later
 

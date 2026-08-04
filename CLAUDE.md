@@ -45,6 +45,10 @@ web app ← D1 (/history, /aggregate) for backfill and Day/Week/Month views
   editor can't run `npm install`, so the Worker hand-writes the MQTT 3.1.1
   packets over a native WebSocket. Do not reintroduce the `mqtt` package into
   `index-dashboard.js`.
+- **The Worker's endpoints have no auth, and `/poll` writes.** `fetch()` checks
+  only the pathname, and CORS is `*`. `/poll` opens a broker connection and
+  inserts a D1 row on an anonymous GET. Don't add new routes assuming a caller
+  is trusted; see HANDOVER's trade-offs for how to close this properly.
 - **Workers `fetch()` can't load `wss://`.** Use `https://` for the MQTT URL in
   the Worker; the `Upgrade` header does the WebSocket switch. (This one silently
   wasted a debugging session.)
