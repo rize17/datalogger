@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v2.1</title>
+<title>DataLogger v2.2</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -216,7 +216,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v2.1</span></h1>
+  <h1>DataLogger<span class="version">v2.2</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <!-- Hidden until there's more than one meter, so a single-meter setup
          looks exactly as it did before. -->
@@ -349,6 +349,7 @@ let byDevice     = store.get("readingsByDevice", {});  // dev -> [{t,ip,tp,seq}]
 let vbatByDevice = store.get("vbatByDevice", {});      // dev -> {v, t}
 let kByDevice    = store.get("kByDevice", {});         // dev -> liters/pulse
 let deviceList   = store.get("deviceList", []);        // from the Worker, or seen live
+let deviceNames  = store.get("deviceNames", {});       // dev -> display_name, from the Worker only
 let currentDevice = store.get("currentDevice", "");
 
 // True once /devices has told us which meters this account owns. Everyone
@@ -450,7 +451,7 @@ function renderDeviceSelector() {
   for (const d of deviceList) {
     const opt = document.createElement("option");
     opt.value = d;
-    opt.textContent = d;
+    opt.textContent = deviceNames[d] || d;
     if (d === currentDevice) opt.selected = true;
     sel.appendChild(opt);
   }
@@ -783,7 +784,11 @@ function connect() {
 async function fetchDevices() {
   if (!settings.historyUrl) return;
   try {
-    const list = await fetchHistoryApi("/devices");
+    // detail=1 also gives display_name, so the switcher can show "House"
+    // instead of the id it's actually keyed on (a MAC-derived string like
+    // wm-fba158 for anything that self-registered rather than being named
+    // by hand).
+    const list = await fetchHistoryApi("/devices?detail=1");
     if (!Array.isArray(list) || !list.length) return;
 
     // Replace rather than merge. Anything previously discovered live may
@@ -793,9 +798,12 @@ async function fetchDevices() {
     // Kept in the Worker's order, not sorted: that's the order they were
     // seeded in `devices`, which is how the owner thinks of them. Sorting
     // alphabetically would open on "K-Fact1" rather than the house meter.
-    deviceList = list.slice();
+    deviceList = list.map(d => d.device_id);
+    deviceNames = {};
+    for (const d of list) deviceNames[d.device_id] = d.display_name || d.device_id;
     deviceListAuthoritative = true;
     store.set("deviceList", deviceList);
+    store.set("deviceNames", deviceNames);
 
     // Forget readings cached for meters that turn out not to be ours.
     for (const dev of Object.keys(byDevice)) {

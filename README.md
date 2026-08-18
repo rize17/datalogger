@@ -54,4 +54,4 @@ deploy actually landed, since Pages caches hard and a hard-refresh is often
 needed. Four places, all together: the `<title>`, the `.version` span, `CACHE`
 in `sw.js`, and *Current* below.
 
-Current: **v2.1**.
+Current: **v2.2**.
