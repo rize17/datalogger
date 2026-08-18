@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v2.2</title>
+<title>DataLogger v2.3</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -216,7 +216,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v2.2</span></h1>
+  <h1>DataLogger<span class="version">v2.3</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <!-- Hidden until there's more than one meter, so a single-meter setup
          looks exactly as it did before. -->
@@ -791,6 +791,18 @@ async function fetchDevices() {
     const list = await fetchHistoryApi("/devices?detail=1");
     if (!Array.isArray(list) || !list.length) return;
 
+    // A gateway never has readings under its own id — it republishes under
+    // the node's — so it belongs in the account's device list (for whoever's
+    // managing it) but never in this switcher, where picking it would just
+    // show a permanently empty meter. `role` is a free-typed column nothing
+    // else writes, so "gw" and "gateway" both show up in the wild; match
+    // either rather than assuming whichever spelling was seeded first.
+    const measuring = list.filter(d => {
+      const role = String(d.role || "").trim().toLowerCase();
+      return role !== "gw" && role !== "gateway";
+    });
+    if (!measuring.length) return;
+
     // Replace rather than merge. Anything previously discovered live may
     // belong to another household on the shared broker, and this list is
     // definitive about what this account owns.
@@ -798,9 +810,9 @@ async function fetchDevices() {
     // Kept in the Worker's order, not sorted: that's the order they were
     // seeded in `devices`, which is how the owner thinks of them. Sorting
     // alphabetically would open on "K-Fact1" rather than the house meter.
-    deviceList = list.map(d => d.device_id);
+    deviceList = measuring.map(d => d.device_id);
     deviceNames = {};
-    for (const d of list) deviceNames[d.device_id] = d.display_name || d.device_id;
+    for (const d of measuring) deviceNames[d.device_id] = d.display_name || d.device_id;
     deviceListAuthoritative = true;
     store.set("deviceList", deviceList);
     store.set("deviceNames", deviceNames);
