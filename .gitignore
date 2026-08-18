@@ -1,25 +1,7 @@
 # Secrets — never commit real credentials
-# (The firmware .ino and Worker currently hold values inline; see README/CLAUDE.md.
-#  If you externalise them, keep the real files out via patterns like these.)
-secrets.h
-*.secret
 *.local.md
 .env
-.dev.vars
-wrangler.toml.local
-
-# Node / Wrangler (if you ever move the Worker to CLI-based deploys)
-node_modules/
-.wrangler/
-dist/
-npm-debug.log*
-yarn-error.log*
-
-# Arduino build output
-build/
-*.hex
-*.bin
-*.elf
+*.secret
 
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
