@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DataLogger v2.0</title>
+
+<!-- Add-to-Home-Screen support -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#07131d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DataLogger">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+
+<style>
+  :root {
+    --bg: #07131d;
+    --panel: #0d1f2d;
+    --panel-edge: #16324a;
+    --ink: #d7e8f2;
+    --ink-dim: #6d8ba0;
+    --aqua: #38c8e8;
+    --aqua-deep: #1596b8;
+    --amber: #e8b638;
+    --ok: #4fd08a;
+    --err: #e86a5e;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 50% -200px, #0e2a3d 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    padding: max(env(safe-area-inset-top), 12px) 14px calc(env(safe-area-inset-bottom) + 20px);
+    max-width: 560px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 2px 14px; flex-wrap: wrap; row-gap: 8px;
+  }
+  header h1 {
+    font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase;
+    font-weight: 600; color: var(--ink-dim);
+  }
+  header h1 .version {
+    font-size: 0.62rem; letter-spacing: 0.04em; text-transform: none;
+    font-weight: 500; color: var(--aqua-deep); margin-left: 6px;
+    vertical-align: middle;
+  }
+  #status {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.72rem; letter-spacing: 0.06em; color: var(--ink-dim);
+  }
+  #statusDot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--err); box-shadow: 0 0 8px var(--err);
+    transition: background .3s, box-shadow .3s;
+  }
+  #statusDot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #statusDot.wait { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+  /* ---------- meter register (signature) ---------- */
+  .register {
+    background: linear-gradient(180deg, #0f2436, #0a1a28);
+    border: 1px solid var(--panel-edge);
+    border-radius: 18px;
+    padding: 22px 18px 18px;
+    text-align: center;
+    position: relative;
+  }
+  .register::after { /* faint water line */
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: 0; height: 34%;
+    background: linear-gradient(180deg, rgba(56,200,232,0.05), rgba(56,200,232,0.13));
+    pointer-events: none;
+    border-radius: 0 0 18px 18px;
+  }
+  .register .label {
+    font-size: 0.7rem; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 10px;
+  }
+  .odometer {
+    display: inline-flex; gap: 5px; align-items: baseline;
+    flex-wrap: wrap; justify-content: center; max-width: 100%;
+  }
+  .odometer .digit {
+    font-family: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.6rem, 8vw, 2.5rem); font-weight: 700; line-height: 1;
+    background: #061019;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    padding: 10px 7px;
+    color: var(--aqua);
+    text-shadow: 0 0 14px rgba(56,200,232,0.45);
+    min-width: 1.35ch; text-align: center;
+  }
+  .odometer .digit.frac { color: var(--amber); text-shadow: 0 0 14px rgba(232,182,56,0.35); }
+  .odometer .sep {
+    font-size: 2rem; color: var(--ink-dim); padding: 0 1px;
+    font-family: ui-monospace, monospace;
+  }
+  .register .unit {
+    margin-top: 10px; font-size: 0.72rem; letter-spacing: 0.2em;
+    color: var(--ink-dim); text-transform: uppercase;
+  }
+
+  /* ---------- stat strip ---------- */
+  .strip {
+    display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px;
+    margin: 12px 0;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 14px; padding: 13px 14px; min-width: 0;
+  }
+  .stat .k { font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+  .stat .v {
+    margin-top: 5px; font-size: 1.35rem; font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .v small { font-size: 0.75rem; color: var(--ink-dim); font-weight: 500; margin-left: 3px; }
+
+  /* ---------- chart panel ---------- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 14px; padding: 14px;
+  }
+  .panel h2 {
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim); font-weight: 600; margin-bottom: 10px;
+  }
+  .chart-head { margin-bottom: 8px; }
+  .view-tabs {
+    display: flex; gap: 4px; margin-top: 8px;
+    background: #081420; border: 1px solid var(--panel-edge);
+    border-radius: 10px; padding: 3px;
+  }
+  .view-tab {
+    flex: 1; padding: 7px 4px; border: none; background: none;
+    color: var(--ink-dim); font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.04em; border-radius: 7px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .view-tab.active { background: var(--aqua-deep); color: #04121a; }
+  .chart-summary {
+    min-height: 1.1em; margin-bottom: 6px; text-align: center;
+    font-size: 0.78rem; color: var(--ink); letter-spacing: 0.02em;
+  }
+  .chart-summary b { color: var(--aqua); font-weight: 700; }
+  #chartWrap { height: 220px; }
+  #lastUpdate {
+    margin-top: 10px; text-align: center;
+    font-size: 0.7rem; color: var(--ink-dim); letter-spacing: 0.04em;
+  }
+
+  /* ---------- settings ---------- */
+  #gear {
+    background: none; border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    border-radius: 10px; padding: 6px 10px; font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+  }
+  dialog {
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--panel-edge); border-radius: 16px;
+    width: min(92vw, 420px); padding: 20px;
+  }
+  dialog::backdrop { background: rgba(3,9,14,0.75); }
+  dialog h2 { font-size: 0.95rem; margin-bottom: 14px; font-weight: 600; }
+  dialog label {
+    display: block; font-size: 0.7rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); margin: 12px 0 4px;
+  }
+  dialog input {
+    width: 100%; background: #081420; color: var(--ink);
+    border: 1px solid var(--panel-edge); border-radius: 8px;
+    padding: 9px 10px; font-size: 0.95rem;
+  }
+  dialog input:focus { outline: 2px solid var(--aqua-deep); border-color: transparent; }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px; }
+  .pw-toggle {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--ink-dim); cursor: pointer;
+    border-radius: 6px;
+  }
+  .pw-toggle:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
+  .pw-toggle svg { width: 18px; height: 18px; }
+  .hint { font-size: 0.7rem; color: var(--ink-dim); margin-top: 4px; }
+  .dlg-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .dlg-actions button {
+    flex: 1; padding: 11px; border-radius: 10px; font-size: 0.85rem;
+    cursor: pointer; border: 1px solid var(--panel-edge);
+  }
+  #saveBtn { background: var(--aqua-deep); color: #04121a; border: none; font-weight: 650; }
+  #cancelBtn { background: none; color: var(--ink-dim); }
+  #resetBtn {
+    width: 100%; margin-top: 14px; padding: 9px; border-radius: 10px;
+    background: none; border: 1px solid rgba(232,106,94,0.4);
+    color: var(--err); font-size: 0.75rem; cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DataLogger<span class="version">v2.0</span></h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <!-- Hidden until there's more than one meter, so a single-meter setup
+         looks exactly as it did before. -->
+    <select id="deviceSel" aria-label="Which meter" style="display:none"></select>
+    <div id="status"><span id="statusDot"></span><span id="statusText">offline</span></div>
+    <button id="gear" aria-label="Settings">Set&nbsp;up</button>
+  </div>
+</header>
+
+<section class="register" aria-label="Total water usage">
+  <div class="label">Total consumption</div>
+  <div class="odometer" id="odometer" aria-live="polite"></div>
+  <div class="unit">liters</div>
+</section>
+
+<section class="strip">
+  <div class="stat"><div class="k">Today</div><div class="v" id="todayVal">0.0<small>L</small></div></div>
+  <div class="stat"><div class="k">Last 5 min</div><div class="v" id="lastVal">0.00<small>L</small></div></div>
+</section>
+
+<section class="panel">
+  <div class="chart-head">
+    <h2 id="chartTitle">Flow — 5-minute intervals</h2>
+    <div class="view-tabs" id="viewTabs">
+      <button class="view-tab active" data-view="live">Live</button>
+      <button class="view-tab" data-view="day">Day</button>
+      <button class="view-tab" data-view="week">Week</button>
+      <button class="view-tab" data-view="month">Month</button>
+    </div>
+  </div>
+  <div id="chartSummary" class="chart-summary"></div>
+  <div id="chartWrap"><canvas id="chart"></canvas></div>
+  <div id="lastUpdate">Waiting for first reading…</div>
+</section>
+
+<dialog id="settingsDlg">
+  <h2>Connection &amp; meter</h2>
+  <label for="inUrl">Broker WebSocket URL</label>
+  <input id="inUrl" placeholder="ws://192.168.1.100:9001" inputmode="url">
+  <div class="hint">Browsers use MQTT over WebSockets — enable a websockets listener on your broker (see guide). Use wss:// if the page is served over https.</div>
+  <label for="inTopic">Topic</label>
+  <input id="inTopic" placeholder="home/water/+/data">
+  <div class="hint">The <code>+</code> wildcard matches every meter, so one connection keeps them all live and switching between them is instant. Name a single meter instead if you'd rather see only that one.</div>
+  <label for="inUser">Username (optional)</label>
+  <input id="inUser" autocomplete="off">
+  <label for="inPass">Password (optional)</label>
+  <div class="pw-wrap">
+    <input id="inPass" type="password" autocomplete="off">
+    <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">
+      <svg id="pwIconShow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <svg id="pwIconHide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.4 20.4 0 0 1-2.68 3.9M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+        <path d="M1 1l22 22"/>
+      </svg>
+    </button>
+  </div>
+  <label for="inK">Liters per pulse (K-factor)</label>
+  <input id="inK" inputmode="decimal" placeholder="1.0">
+  <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse. <span id="kFor"></span></div>
+  <label for="inHistory">History API URL (optional)</label>
+  <input id="inHistory" placeholder="https://watermeter-logger.you.workers.dev" inputmode="url">
+  <div class="hint">If you've deployed the always-on logger, paste its base URL here to backfill readings you missed while the app was closed. Leave blank to skip.</div>
+  <label for="inAcct">History username</label>
+  <input id="inAcct" autocomplete="username" inputmode="email">
+  <label for="inAcctPass">History password</label>
+  <div class="pw-wrap">
+    <input id="inAcctPass" type="password" autocomplete="current-password">
+    <button type="button" class="pw-toggle" id="acctPwToggle" aria-label="Show password">
+      <svg id="acctPwIconShow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <svg id="acctPwIconHide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.4 20.4 0 0 1-2.68 3.9M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+        <path d="M1 1l22 22"/>
+      </svg>
+    </button>
+  </div>
+  <div class="hint">The username and password you were given for the history logger — this is what decides which meters you see. The app swaps them for a token that lasts 30 days and renews itself, so you shouldn't have to type this again. <span id="acctState"></span></div>
+  <div class="dlg-actions">
+    <button id="cancelBtn" type="button">Cancel</button>
+    <button id="saveBtn" type="button">Save &amp; connect</button>
+  </div>
+  <button id="resetBtn" type="button">Clear stored history</button>
+</dialog>
+
+<script>
+"use strict";
+
+/* ---------- storage (localStorage with in-memory fallback) ---------- */
+const store = (() => {
+  let mem = {};
+  let ok = false;
+  try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); ok = true; } catch (_) {}
+  return {
+    get(k, d) {
+      try { const v = ok ? localStorage.getItem(k) : mem[k]; return v == null ? d : JSON.parse(v); }
+      catch (_) { return d; }
+    },
+    set(k, v) {
+      try { const s = JSON.stringify(v); if (ok) localStorage.setItem(k, s); else mem[k] = s; } catch (_) {}
+    },
+    del(k) { try { if (ok) localStorage.removeItem(k); else delete mem[k]; } catch (_) {} }
+  };
+})();
+
+/* ---------- state ---------- */
+const MAX_READINGS = 288; // 24 h of 5-min intervals per meter
+let settings = Object.assign({
+  // "+" is the MQTT single-level wildcard: one subscription covers every
+  // meter, so they all stay live and switching between them is instant.
+  url: "ws://192.168.1.100:9001",
+  topic: "home/water/+/data",
+  // user/pass are the *broker's* credentials. The history logger has its own
+  // login — acct/acctPass — and they are unrelated; sharing one pair of
+  // fields between them would be a nasty surprise the day either changes.
+  user: "", pass: "", k: 1.0, historyUrl: "",
+  acct: "", acctPass: "", token: "", tokenExp: 0
+}, store.get("settings", {}));
+
+// Everything below is keyed by device id. One meter behaves exactly as before;
+// the switcher only appears once there's more than one.
+let byDevice     = store.get("readingsByDevice", {});  // dev -> [{t,ip,tp,seq}]
+let vbatByDevice = store.get("vbatByDevice", {});      // dev -> {v, t}
+let kByDevice    = store.get("kByDevice", {});         // dev -> liters/pulse
+let deviceList   = store.get("deviceList", []);        // from the Worker, or seen live
+let currentDevice = store.get("currentDevice", "");
+
+// True once /devices has told us which meters this account owns. Everyone
+// shares one set of broker credentials, so the wildcard subscription also
+// carries other households' meters — once we know which are ours, the rest
+// are ignored outright rather than appearing in the switcher.
+let deviceListAuthoritative = false;
+
+// The selected meter's readings. Kept as its own binding because the render
+// and chart code all read `readings` directly — setReadings() keeps it and
+// byDevice in step.
+let readings = [];
+let client = null;
+
+const VBAT_LOW_V = 3.5;   // matches VBAT_LOW_V in the node firmware
+
+// One-time migration from the single-meter layout, so upgrading doesn't throw
+// away the history already on the phone.
+//
+// The old install's topic names the meter it belonged to, so file the readings
+// under that id — then when the device next publishes, its history simply
+// continues. Filing them under a placeholder would leave the real device
+// starting empty beside an orphaned entry that never updates again.
+(function migrateSingleDevice() {
+  const old = store.get("readings", null);
+  if (old && Array.isArray(old) && old.length && !Object.keys(byDevice).length) {
+    const fromTopic = deviceFromTopic(store.get("settings", {}).topic || "");
+    const dev = fromTopic && fromTopic !== "+" ? fromTopic : "(previous meter)";
+    byDevice[dev] = old;
+    const oldVbat = store.get("vbat", null);
+    if (oldVbat) vbatByDevice[dev] = oldVbat;
+    if (!currentDevice) currentDevice = dev;
+    if (!deviceList.includes(dev)) deviceList.push(dev);
+    store.set("readingsByDevice", byDevice);
+    store.set("vbatByDevice", vbatByDevice);
+    store.set("currentDevice", currentDevice);
+    store.set("deviceList", deviceList);
+  }
+  store.del("readings");
+  store.del("vbat");
+})();
+
+/* ---------- devices ---------- */
+
+// home/water/<device>/data -> <device>
+function deviceFromTopic(topic) {
+  const parts = String(topic).split("/");
+  return parts.length >= 4 ? parts[2] : null;
+}
+
+function persistReadings() { store.set("readingsByDevice", byDevice); }
+
+// Replaces the current meter's readings, keeping `readings` and the store in
+// step. Callers that reassign wholesale (backfill, clear) go through this.
+function setReadings(arr) {
+  readings = arr;
+  if (currentDevice) byDevice[currentDevice] = arr;
+  persistReadings();
+}
+
+// Per-meter K-factor: two meters in different houses need not be the same
+// model. Falls back to the global setting for anything not yet configured.
+function kFactor(dev) {
+  const d = dev ?? currentDevice;
+  const v = kByDevice[d];
+  return typeof v === "number" && v > 0 ? v : (settings.k || 1.0);
+}
+
+function noteDeviceSeen(dev) {
+  if (!dev || deviceList.includes(dev)) return;
+  // Live discovery is only a fallback for when the Worker hasn't told us the
+  // account's meters. Once it has, that list is the whole truth.
+  if (deviceListAuthoritative) return;
+  deviceList.push(dev);
+  deviceList.sort();
+  store.set("deviceList", deviceList);
+  renderDeviceSelector();
+}
+
+function selectDevice(dev) {
+  if (!dev) return;
+  currentDevice = dev;
+  store.set("currentDevice", dev);
+  if (!byDevice[dev]) byDevice[dev] = [];
+  readings = byDevice[dev];
+  noteDeviceSeen(dev);
+  renderDeviceSelector();
+  renderAll();
+  loadView(currentView);   // history views are per-device too
+}
+
+function renderDeviceSelector() {
+  const sel = $("deviceSel");
+  if (!sel) return;
+  // Only worth showing once there's a choice to make.
+  sel.style.display = deviceList.length > 1 ? "" : "none";
+  if (sel.value === currentDevice && sel.options.length === deviceList.length) return;
+  sel.innerHTML = "";
+  for (const d of deviceList) {
+    const opt = document.createElement("option");
+    opt.value = d;
+    opt.textContent = d;
+    if (d === currentDevice) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const fmtTime = ms => {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+};
+const isSameDay = (a, b) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+// "Today" / "Yesterday" / "Mon 14 Jul" — used so a stale chart can't be
+// mistaken for a live one.
+const fmtDayLabel = ms => {
+  const d = new Date(ms);
+  const now = new Date();
+  if (isSameDay(d, now)) return "Today";
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (isSameDay(d, yest)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+};
+const totalLiters = () => readings.length ? readings[readings.length-1].tp * kFactor() : 0;
+const lastLiters  = () => readings.length ? readings[readings.length-1].ip * kFactor() : 0;
+const todayLiters = () => {
+  const mid = new Date(); mid.setHours(0,0,0,0);
+  return readings.filter(r => r.t >= mid.getTime())
+                 .reduce((s,r) => s + r.ip, 0) * kFactor();
+};
+
+/* ---------- odometer render ---------- */
+function renderOdometer() {
+  const v = totalLiters();
+  const [intPart, fracPart] = v.toFixed(1).split(".");
+  const padded = intPart.padStart(5, "0");
+  const el = $("odometer");
+  el.innerHTML = "";
+  for (const ch of padded) {
+    const d = document.createElement("span");
+    d.className = "digit"; d.textContent = ch;
+    el.appendChild(d);
+  }
+  const sep = document.createElement("span");
+  sep.className = "sep"; sep.textContent = ".";
+  el.appendChild(sep);
+  const f = document.createElement("span");
+  f.className = "digit frac"; f.textContent = fracPart;
+  el.appendChild(f);
+}
+
+/* ---------- chart (plain canvas, no external libraries) ---------- */
+const canvas = $("chart");
+const ctx = canvas.getContext("2d");
+let barGeom = []; // hit-testing for tooltips: {x, y, w, h, value, label}
+let tooltip = null;
+
+function sizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + "px";
+  canvas.style.height = rect.height + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w: rect.width, h: rect.height };
+}
+
+// Current view state: "live" | "day" | "week" | "month"
+let currentView = "live";
+// Bars for the non-live views: [{ value: liters, label: "Mon", full: "Mon 14" }]
+let aggregateBars = [];
+
+// Build the bar list for whatever view is active.
+function currentBars() {
+  if (currentView === "live") {
+    const visible = readings.slice(-36); // last 3 hours
+    // If the visible window spans more than one calendar day (e.g. stale data
+    // from yesterday, or an overnight gap), include the date in the axis
+    // labels so it's never ambiguous which day a bar belongs to.
+    const spansDays = visible.length > 1 &&
+      !isSameDay(new Date(visible[0].t), new Date(visible[visible.length - 1].t));
+    return visible.map(r => {
+      const d = new Date(r.t);
+      const dayPart = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      return {
+        value: r.ip * kFactor(),
+        label: spansDays ? `${dayPart} ${fmtTime(r.t)}` : fmtTime(r.t),
+        full: `${fmtDayLabel(r.t)} ${fmtTime(r.t)}`,
+      };
+    });
+  }
+  return aggregateBars;
+}
+
+function renderChart() {
+  const { w, h } = sizeCanvas();
+  ctx.clearRect(0, 0, w, h);
+  barGeom = [];
+
+  const bars = currentBars();
+  if (!bars.length) return;
+
+  const values = bars.map(b => b.value);
+  const maxVal = Math.max(1, ...values);
+
+  const padL = 34, padR = 6, padT = 8, padB = 22;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const n = bars.length;
+  const slot = plotW / n;
+  const barW = Math.max(2, Math.min(18, slot * 0.62));
+
+  ctx.strokeStyle = "rgba(22,50,74,0.6)";
+  ctx.fillStyle = "#6d8ba0";
+  ctx.font = "10px -apple-system, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const v = (maxVal * i) / steps;
+    const y = padT + plotH - (v / maxVal) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    ctx.fillText(v.toFixed(v < 10 ? 1 : 0), padL - 6, y);
+  }
+
+  // Label roughly every ~6 bars in live view; for day/week/month, aim for
+  // about 6-8 labels total so they don't collide.
+  const labelEvery = currentView === "live"
+    ? 6
+    : Math.max(1, Math.round(n / 7));
+
+  for (let i = 0; i < n; i++) {
+    const val = values[i];
+    const barH = (val / maxVal) * plotH;
+    const cx = padL + slot * i + slot / 2;
+    const x = cx - barW / 2;
+    const y = padT + plotH - barH;
+
+    const grad = ctx.createLinearGradient(0, y, 0, padT + plotH);
+    grad.addColorStop(0, "rgba(56,200,232,0.95)");
+    grad.addColorStop(1, "rgba(56,200,232,0.45)");
+    ctx.fillStyle = grad;
+    const r = Math.min(3, barW / 2);
+    ctx.beginPath();
+    ctx.moveTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.lineTo(x + barW - r, y);
+    ctx.arcTo(x + barW, y, x + barW, y + r, r);
+    ctx.lineTo(x + barW, padT + plotH);
+    ctx.lineTo(x, padT + plotH);
+    ctx.closePath();
+    ctx.fill();
+
+    barGeom.push({
+      x, y: padT, w: barW, h: plotH,
+      value: val,
+      label: (bars[i].full || bars[i].label),
+    });
+
+    if (i % labelEvery === 0) {
+      ctx.fillStyle = "#6d8ba0";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.font = "10px -apple-system, sans-serif";
+      ctx.fillText(bars[i].label, cx, h - 6);
+    }
+  }
+
+  drawTooltip();
+}
+
+function drawTooltip() {
+  if (!tooltip) return;
+  const text = tooltip.text;
+  ctx.font = "600 12px -apple-system, sans-serif";
+  const padX = 8, padY = 6;
+  const textW = ctx.measureText(text).width;
+  const boxW = textW + padX * 2;
+  const boxH = 22;
+  let bx = tooltip.x - boxW / 2;
+  bx = Math.max(4, Math.min(bx, canvas.clientWidth - boxW - 4));
+  const by = Math.max(2, tooltip.y - boxH - 8);
+
+  ctx.fillStyle = "#0a1a28";
+  ctx.strokeStyle = "#16324a";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(bx, by, boxW, boxH, 6) : ctx.rect(bx, by, boxW, boxH);
+  ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = "#d7e8f2";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, bx + boxW / 2, by + boxH / 2);
+}
+
+function handlePointer(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  const hit = barGeom.find(b => px >= b.x - 2 && px <= b.x + b.w + 2);
+  tooltip = hit ? { x: hit.x + hit.w / 2, y: py, text: hit.label + " · " + hit.value.toFixed(2) + " L" } : null;
+  renderChart();
+}
+
+canvas.addEventListener("mousemove", e => handlePointer(e.clientX, e.clientY));
+canvas.addEventListener("mouseleave", () => { tooltip = null; renderChart(); });
+canvas.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) handlePointer(t.clientX, t.clientY); }, { passive: true });
+canvas.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) handlePointer(t.clientX, t.clientY); }, { passive: true });
+window.addEventListener("resize", () => renderChart());
+
+function renderAll() {
+  renderOdometer();
+  $("todayVal").innerHTML = todayLiters().toFixed(1) + "<small>L</small>";
+  $("lastVal").innerHTML  = lastLiters().toFixed(2) + "<small>L</small>";
+  if (currentView === "live") refreshLiveSummary();
+  renderChart();
+  if (readings.length) {
+    const lastT = readings[readings.length-1].t;
+    const ageMin = (Date.now() - lastT) / 60000;
+    const when = `${fmtDayLabel(lastT)} ${fmtTime(lastT)}`;
+    // The ESP32 publishes every 5 min; >15 min without one means something's
+    // up (device off, WiFi down), so say so rather than showing a stale
+    // number as though it were current.
+    const stale = ageMin > 15;
+    $("lastUpdate").innerHTML = (stale
+      ? `<span style="color:var(--amber)">⚠ No data since ${when}</span> · ${readings.length} intervals stored`
+      : `Last reading ${when} · ${readings.length} intervals stored`) + batteryHtml();
+  }
+}
+
+// Only the LoRa node reports a battery, so this stays empty for a WiFi node
+// rather than showing a misleading blank or zero reading.
+function batteryHtml() {
+  const vbat = vbatByDevice[currentDevice];
+  if (!vbat) return "";
+  const txt = `Battery ${vbat.v.toFixed(2)} V`;
+  return vbat.v < VBAT_LOW_V
+    ? ` · <span style="color:var(--amber)">⚠ ${txt}</span>`
+    : ` · ${txt}`;
+}
+
+/* ---------- MQTT ---------- */
+function setStatus(mode, text) {
+  $("statusDot").className = mode; // "on" | "wait" | ""
+  $("statusText").textContent = text;
+}
+
+function connect() {
+  if (client) { try { client.end(true); } catch(_){} client = null; }
+  if (typeof mqtt === "undefined") { setStatus("", "mqtt.js failed to load"); return; }
+
+  setStatus("wait", "connecting…");
+  try {
+    client = mqtt.connect(settings.url, {
+      clientId: "wm-web-" + Math.random().toString(16).slice(2, 8),
+      username: settings.user || undefined,
+      password: settings.pass || undefined,
+      reconnectPeriod: 5000,
+      connectTimeout: 8000
+    });
+  } catch (e) { setStatus("", "bad URL"); return; }
+
+  client.on("connect", () => {
+    setStatus("on", "live");
+    client.subscribe(settings.topic, { qos: 1 });
+  });
+  client.on("reconnect", () => setStatus("wait", "reconnecting…"));
+  client.on("close",     () => setStatus("", "offline"));
+  client.on("error",     () => setStatus("", "connection error"));
+
+  client.on("message", (topic, payload) => {
+    let msg;
+    try { msg = JSON.parse(payload.toString()); } catch (_) { return; }
+    if (typeof msg.total_pulses !== "number") return;
+
+    // The topic names the meter structurally, which beats trusting a "device"
+    // field a misconfigured node could get wrong. With the wildcard
+    // subscription this is how one connection feeds every meter.
+    const dev = deviceFromTopic(topic) || msg.device;
+    if (!dev) return;
+    // Not one of ours: another household's meter on the shared broker. Drop it
+    // before it reaches storage — otherwise their readings accumulate in this
+    // browser and their meter shows up in the switcher.
+    if (deviceListAuthoritative && !deviceList.includes(dev)) return;
+    noteDeviceSeen(dev);
+    if (!currentDevice) selectDevice(dev);   // first meter seen becomes the view
+
+    // Battery is device state, not a reading — capture it before the dedupe
+    // below. After a reload the retained message usually carries a seq we've
+    // already stored, so dedupe skips it, and gating on that would leave the
+    // battery blank until the next genuinely new reading (up to 5 minutes).
+    if (typeof msg.vbat === "number") {
+      vbatByDevice[dev] = { v: msg.vbat, t: Date.now() };
+      store.set("vbatByDevice", vbatByDevice);
+    }
+
+    const list = byDevice[dev] || (byDevice[dev] = []);
+
+    // Retained messages replay the last reading on every (re)connect, no
+    // matter how much time has passed. seq only changes when the device
+    // actually publishes something new, so it's the reliable way to tell
+    // "genuinely new reading" apart from "same old one replayed again".
+    const last = list[list.length - 1];
+    if (last && msg.seq != null && last.seq === msg.seq) return;
+
+    list.push({ t: Date.now(), ip: msg.interval_pulses|0, tp: msg.total_pulses, seq: msg.seq });
+    if (list.length > MAX_READINGS) byDevice[dev] = list.slice(-MAX_READINGS);
+    persistReadings();
+
+    // Meters we're not looking at still accumulate in the background; only
+    // redraw when it's the one on screen.
+    if (dev === currentDevice) {
+      readings = byDevice[dev];
+      renderAll();
+    }
+  });
+}
+
+// Asks the Worker which meters this account may see, so the switcher reflects
+// the account rather than only whatever has happened to publish since load.
+async function fetchDevices() {
+  if (!settings.historyUrl) return;
+  try {
+    const list = await fetchHistoryApi("/devices");
+    if (!Array.isArray(list) || !list.length) return;
+
+    // Replace rather than merge. Anything previously discovered live may
+    // belong to another household on the shared broker, and this list is
+    // definitive about what this account owns.
+    //
+    // Kept in the Worker's order, not sorted: that's the order they were
+    // seeded in `devices`, which is how the owner thinks of them. Sorting
+    // alphabetically would open on "K-Fact1" rather than the house meter.
+    deviceList = list.slice();
+    deviceListAuthoritative = true;
+    store.set("deviceList", deviceList);
+
+    // Forget readings cached for meters that turn out not to be ours.
+    for (const dev of Object.keys(byDevice)) {
+      if (!deviceList.includes(dev)) { delete byDevice[dev]; delete vbatByDevice[dev]; }
+    }
+    persistReadings();
+    store.set("vbatByDevice", vbatByDevice);
+
+    if (!currentDevice || !deviceList.includes(currentDevice)) selectDevice(deviceList[0]);
+    else renderDeviceSelector();
+  } catch (err) {
+    // Non-fatal: the switcher still fills in from live MQTT traffic.
+    console.warn("Device list unavailable:", err);
+  }
+}
+
+/* ---------- settings dialog ---------- */
+const dlg = $("settingsDlg");
+$("gear").onclick = () => {
+  $("inUrl").value = settings.url;
+  $("inTopic").value = settings.topic;
+  $("inUser").value = settings.user;
+  $("inPass").value = settings.pass;
+  $("inK").value = kFactor();
+  $("kFor").textContent = deviceList.length > 1 && currentDevice
+    ? `Applies to “${currentDevice}” only.`
+    : "";
+  $("inHistory").value = settings.historyUrl;
+  $("inAcct").value = settings.acct;
+  $("inAcctPass").value = settings.acctPass;
+  $("acctState").textContent = settings.token && Date.now() < settings.tokenExp
+    ? `Signed in until ${new Date(settings.tokenExp).toLocaleDateString()}.`
+    : "";
+  $("inPass").type = "password";
+  $("pwIconShow").style.display = "";
+  $("pwIconHide").style.display = "none";
+  $("pwToggle").setAttribute("aria-label", "Show password");
+  $("inAcctPass").type = "password";
+  $("acctPwIconShow").style.display = "";
+  $("acctPwIconHide").style.display = "none";
+  $("acctPwToggle").setAttribute("aria-label", "Show password");
+  dlg.showModal();
+};
+$("acctPwToggle").onclick = () => {
+  const pw = $("inAcctPass");
+  const showing = pw.type === "text";
+  pw.type = showing ? "password" : "text";
+  $("acctPwIconShow").style.display = showing ? "" : "none";
+  $("acctPwIconHide").style.display = showing ? "none" : "";
+  $("acctPwToggle").setAttribute("aria-label", showing ? "Show password" : "Hide password");
+};
+$("pwToggle").onclick = () => {
+  const pw = $("inPass");
+  const showing = pw.type === "text";
+  pw.type = showing ? "password" : "text";
+  $("pwIconShow").style.display = showing ? "" : "none";
+  $("pwIconHide").style.display = showing ? "none" : "";
+  $("pwToggle").setAttribute("aria-label", showing ? "Show password" : "Hide password");
+};
+$("cancelBtn").onclick = () => dlg.close();
+$("saveBtn").onclick = () => {
+  settings.url        = $("inUrl").value.trim();
+  settings.topic      = $("inTopic").value.trim();
+  settings.user       = $("inUser").value.trim();
+  settings.pass       = $("inPass").value;
+  // K-factor is per meter — two houses need not have the same model. Also
+  // kept in settings.k as the fallback for any meter not yet configured.
+  settings.k          = parseFloat($("inK").value) || 1.0;
+  if (currentDevice) {
+    kByDevice[currentDevice] = settings.k;
+    store.set("kByDevice", kByDevice);
+  }
+  settings.historyUrl = $("inHistory").value.trim().replace(/\/$/, "");
+
+  // A changed login invalidates the token held for the old one. Without this
+  // the app keeps using a session belonging to the previous account, and the
+  // new credentials appear to do nothing at all.
+  const acct = $("inAcct").value.trim();
+  const acctPass = $("inAcctPass").value;
+  if (acct !== settings.acct || acctPass !== settings.acctPass) {
+    settings.token = ""; settings.tokenExp = 0;
+  }
+  settings.acct = acct;
+  settings.acctPass = acctPass;
+
+  store.set("settings", settings);
+  dlg.close();
+  renderAll();   // re-render with new K-factor
+  connect();
+
+  // Re-fetch the device list, exactly as at boot. The login may have just
+  // changed, which means a different account owning different meters — and
+  // without this the previously selected meter sticks. Asking the Worker for
+  // a meter the new account doesn't own correctly returns empty, so the
+  // symptom is a blank screen with nothing to say the selection is at fault.
+  deviceListAuthoritative = false;
+  ensureSession().then(fetchDevices).then(backfillHistory);
+};
+$("resetBtn").onclick = () => {
+  const which = currentDevice ? `“${currentDevice}”` : "this meter";
+  if (!confirm(`Delete stored readings for ${which} on this phone?`)) return;
+  setReadings([]);   // only the selected meter; the others are left alone
+  renderAll();
+  $("lastUpdate").textContent = "History cleared — waiting for next reading…";
+};
+
+/* ---------- backfill from always-on logger (optional) ---------- */
+
+// The token goes in a header rather than the query string so it doesn't end
+// up in server logs or browser history. Only send it when there is one — an
+// empty custom header would still trigger a CORS preflight, which an older
+// logger (deployed before auth existed) wouldn't answer correctly.
+function historyHeaders() {
+  return settings.token ? { "X-API-Key": settings.token } : {};
+}
+
+// Renew a day early rather than on the stroke of expiry. A phone that has
+// been asleep can come back to a token that expired minutes ago, and the
+// first thing it would do is fail a request it didn't need to.
+const TOKEN_RENEW_MS = 24 * 60 * 60 * 1000;
+
+// Exchanges the username and password for a token. Returns whether there's a
+// usable one afterwards; the caller decides how loudly to care.
+async function login() {
+  if (!settings.historyUrl || !settings.acct || !settings.acctPass) return false;
+  try {
+    const res = await fetch(`${settings.historyUrl}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: settings.acct, password: settings.acctPass,
+      }),
+    });
+    if (!res.ok) {
+      // 401 here means the password is wrong, not that a token expired —
+      // there is nothing to retry, so drop what we have and let the history
+      // views report the refusal rather than looping.
+      settings.token = ""; settings.tokenExp = 0;
+      store.set("settings", settings);
+      console.warn(`Sign-in refused (HTTP ${res.status}) — check the history username and password in Set up.`);
+      return false;
+    }
+    const data = await res.json();
+    settings.token = data.token || "";
+    settings.tokenExp = data.expires_at || 0;
+    store.set("settings", settings);
+    return !!settings.token;
+  } catch (err) {
+    // Offline. Keep whatever token we have; it may well still be valid.
+    console.warn("Sign-in failed:", err);
+    return !!settings.token;
+  }
+}
+
+// Called before anything that needs history, and cheap when there's nothing
+// to do — which is every call but one a month.
+async function ensureSession() {
+  if (!settings.acct || !settings.acctPass) return;
+  if (settings.token && Date.now() < settings.tokenExp - TOKEN_RENEW_MS) return;
+  await login();
+}
+
+// 401 = the credential was refused, 503 = the Worker has no accounts
+// configured. Both mean "fix the sign-in", which is a different user action
+// from a URL typo.
+//
+// One silent retry on 401, because the honest reason for it is a token
+// revoked or expired early (a password change elsewhere, a swept session) and
+// the app can fix that itself. Only once: a second 401 means the password is
+// wrong, and retrying a wrong password is how an account gets locked out.
+async function fetchHistoryApi(path, retried) {
+  const res = await fetch(`${settings.historyUrl}${path}`, { headers: historyHeaders() });
+  if (res.status === 401 && !retried && settings.acct && settings.acctPass) {
+    settings.token = ""; settings.tokenExp = 0;
+    if (await login()) return fetchHistoryApi(path, true);
+  }
+  if (res.status === 401 || res.status === 503) throw new Error("AUTH");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+// The Worker defaults to the account's first meter when no device is given,
+// which would quietly show the wrong one here. Always be explicit.
+function deviceParam() {
+  return currentDevice ? `&device=${encodeURIComponent(currentDevice)}` : "";
+}
+
+async function backfillHistory() {
+  if (!settings.historyUrl) return;
+
+  try {
+    const rows = await fetchHistoryApi(`/history?limit=${MAX_READINGS}${deviceParam()}`);
+
+    // Merge by seq (device+seq uniquely identifies a reading); local
+    // readings win on conflict since they're already what's on screen.
+    const known = new Set(readings.map(r => r.seq));
+    const merged = readings.slice();
+    for (const row of rows) {
+      if (row.seq != null && known.has(row.seq)) continue;
+      merged.push({
+        t: row.received_at,
+        ip: row.interval_pulses || 0,
+        tp: row.total_pulses || 0,
+        seq: row.seq,
+      });
+    }
+    merged.sort((a, b) => a.t - b.t);
+    setReadings(merged.length > MAX_READINGS ? merged.slice(-MAX_READINGS) : merged);
+    renderAll();
+  } catch (err) {
+    // Non-fatal — the app still works fine on live MQTT data alone. The
+    // Day/Week/Month views surface the reason visibly if it's the sign-in.
+    console.warn(err.message === "AUTH"
+      ? "History backfill refused — check the history sign-in in Set up."
+      : "History backfill failed:", err);
+  }
+}
+
+/* ---------- history views (Day / Week / Month) ---------- */
+
+const VIEW_CONFIG = {
+  day:   { bucket: "hour", days: 1,  title: "Usage — hourly (today)" },
+  week:  { bucket: "day",  days: 7,  title: "Usage — daily (7 days)" },
+  month: { bucket: "day",  days: 30, title: "Usage — daily (30 days)" },
+};
+
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Date range shown above the Live chart — refreshed on every new reading
+// so it can't drift out of sync with what's actually plotted.
+function refreshLiveSummary() {
+  const visible = readings.slice(-36);
+  if (!visible.length) { $("chartSummary").innerHTML = ""; return; }
+  const firstDay = fmtDayLabel(visible[0].t);
+  const lastDay = fmtDayLabel(visible[visible.length - 1].t);
+  const range = firstDay === lastDay ? firstDay : `${firstDay} → ${lastDay}`;
+  $("chartSummary").innerHTML = `<b>${range}</b>`;
+}
+
+async function loadView(view) {
+  currentView = view;
+
+  // Update tab highlighting + title
+  document.querySelectorAll(".view-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.view === view));
+
+  if (view === "live") {
+    $("chartTitle").textContent = "Flow — 5-minute intervals";
+    refreshLiveSummary();
+    aggregateBars = [];
+    renderChart();
+    return;
+  }
+
+  const cfg = VIEW_CONFIG[view];
+  $("chartTitle").textContent = cfg.title;
+
+  if (!settings.historyUrl) {
+    $("chartSummary").innerHTML = "Set a History API URL in Set up to see this view.";
+    aggregateBars = [];
+    renderChart();
+    return;
+  }
+
+  $("chartSummary").textContent = "Loading…";
+  const since = Date.now() - cfg.days * 24 * 60 * 60 * 1000;
+
+  try {
+    const rows = await fetchHistoryApi(
+      `/aggregate?bucket=${cfg.bucket}&since=${since}${deviceParam()}`);
+
+    aggregateBars = rows.map(row => {
+      const liters = (row.pulses || 0) * kFactor();
+      // row.bucket is "YYYY-MM-DDTHH:00" (hour) or "YYYY-MM-DD" (day), and is
+      // always UTC (the Worker buckets with SQLite's 'unixepoch' modifier).
+      // Append Z so Date parses it as UTC instead of local time — otherwise
+      // getHours()/getDay() below just echo the UTC value back unconverted,
+      // showing bars offset by the browser's UTC offset (e.g. 2h in CEST).
+      const d = new Date(row.bucket.length > 10 ? row.bucket + ":00Z" : row.bucket + "T00:00:00Z");
+      let label, full;
+      if (cfg.bucket === "hour") {
+        label = String(d.getHours()).padStart(2, "0") + ":00";
+        full = label;
+      } else {
+        label = `${DOW[d.getDay()]} ${d.getDate()}`;
+        full = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+      }
+      return { value: liters, label, full };
+    });
+
+    // Summary: total + daily average
+    const totalL = aggregateBars.reduce((s, b) => s + b.value, 0);
+    const dailyAvg = totalL / cfg.days;
+    $("chartSummary").innerHTML =
+      `Total <b>${totalL.toFixed(0)} L</b> · avg <b>${dailyAvg.toFixed(0)} L</b>/day`;
+
+    renderChart();
+  } catch (err) {
+    console.warn("View load failed:", err);
+    $("chartSummary").textContent = err.message === "AUTH"
+      ? "History sign-in missing or wrong — fix it in Set up."
+      : "Couldn't load history — check the History API URL.";
+    aggregateBars = [];
+    renderChart();
+  }
+}
+
+$("viewTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".view-tab");
+  if (btn) loadView(btn.dataset.view);
+});
+
+/* ---------- service worker (offline shell) ---------- */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+$("deviceSel").addEventListener("change", (e) => {
+  selectDevice(e.target.value);
+  backfillHistory();   // pull the newly-selected meter's history
+});
+
+/* ---------- boot ---------- */
+// Restore the previously-selected meter before the first render, so a reload
+// comes back to the same one rather than defaulting to whichever publishes
+// first.
+if (currentDevice) {
+  if (!byDevice[currentDevice]) byDevice[currentDevice] = [];
+  readings = byDevice[currentDevice];
+  noteDeviceSeen(currentDevice);
+}
+renderDeviceSelector();
+renderAll();
+connect();
+// Sign in first when there's a login stored, so the very first /devices call
+// carries a fresh token rather than spending a 401 to discover it expired.
+ensureSession().then(fetchDevices).then(backfillHistory);
+</script>
+</body>
+</html>
