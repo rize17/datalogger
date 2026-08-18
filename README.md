@@ -22,19 +22,27 @@ this one is public purely so GitHub Pages can serve it for free.
 
 ## Setting it up
 
-Open the app, tap **Set up**, and fill in:
+Open the app, tap **Set up**, and sign in:
+
+| Field | What it is |
+|---|---|
+| Username / password | your account for the logger; decides which meters you see |
+| Server URL | the Worker's base URL |
+| Liters per pulse (K-factor) | check the meter's spec plate |
+
+Signing in is all the app needs. Add these under **Live (optional)** too if
+you want instant updates over MQTT, rather than waiting for the next Worker
+poll:
 
 | Field | What it is |
 |---|---|
 | Broker WebSocket URL | `wss://<cluster>:8884/mqtt` |
 | Topic | `home/water/+/data` — the `+` covers every meter |
-| Username / password | broker credentials |
-| History API URL | the Worker's base URL |
-| History username / password | your account for the logger; decides which meters you see |
+| Broker username / password | broker credentials |
 
-Nothing is hardcoded and no credentials are stored in this repo. Broker
-details are kept in the browser's local storage; the history login is
-exchanged for a token that lasts 30 days and renews itself.
+Nothing is hardcoded and no credentials are stored in this repo. Everything
+is kept in the browser's local storage; the sign-in is exchanged for a token
+that lasts 30 days and renews itself.
 
 ## Deploying
 
@@ -46,4 +54,4 @@ deploy actually landed, since Pages caches hard and a hard-refresh is often
 needed. Four places, all together: the `<title>`, the `.version` span, `CACHE`
 in `sw.js`, and *Current* below.
 
-Current: **v2.0**.
+Current: **v2.1**.

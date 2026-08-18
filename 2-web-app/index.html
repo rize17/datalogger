@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DataLogger v2.0</title>
+<title>DataLogger v2.1</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -174,7 +174,8 @@
     width: min(92vw, 420px); padding: 20px;
   }
   dialog::backdrop { background: rgba(3,9,14,0.75); }
-  dialog h2 { font-size: 0.95rem; margin-bottom: 14px; font-weight: 600; }
+  dialog h2 { font-size: 0.95rem; margin: 26px 0 14px; font-weight: 600; }
+  dialog h2:first-of-type { margin-top: 0; }
   dialog label {
     display: block; font-size: 0.7rem; letter-spacing: 0.12em;
     text-transform: uppercase; color: var(--ink-dim); margin: 12px 0 4px;
@@ -215,7 +216,7 @@
 <body>
 
 <header>
-  <h1>DataLogger<span class="version">v2.0</span></h1>
+  <h1>DataLogger<span class="version">v2.1</span></h1>
   <div style="display:flex;align-items:center;gap:12px">
     <!-- Hidden until there's more than one meter, so a single-meter setup
          looks exactly as it did before. -->
@@ -252,38 +253,10 @@
 </section>
 
 <dialog id="settingsDlg">
-  <h2>Connection &amp; meter</h2>
-  <label for="inUrl">Broker WebSocket URL</label>
-  <input id="inUrl" placeholder="ws://192.168.1.100:9001" inputmode="url">
-  <div class="hint">Browsers use MQTT over WebSockets — enable a websockets listener on your broker (see guide). Use wss:// if the page is served over https.</div>
-  <label for="inTopic">Topic</label>
-  <input id="inTopic" placeholder="home/water/+/data">
-  <div class="hint">The <code>+</code> wildcard matches every meter, so one connection keeps them all live and switching between them is instant. Name a single meter instead if you'd rather see only that one.</div>
-  <label for="inUser">Username (optional)</label>
-  <input id="inUser" autocomplete="off">
-  <label for="inPass">Password (optional)</label>
-  <div class="pw-wrap">
-    <input id="inPass" type="password" autocomplete="off">
-    <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">
-      <svg id="pwIconShow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
-        <circle cx="12" cy="12" r="3"/>
-      </svg>
-      <svg id="pwIconHide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
-        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.4 20.4 0 0 1-2.68 3.9M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
-        <path d="M1 1l22 22"/>
-      </svg>
-    </button>
-  </div>
-  <label for="inK">Liters per pulse (K-factor)</label>
-  <input id="inK" inputmode="decimal" placeholder="1.0">
-  <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse. <span id="kFor"></span></div>
-  <label for="inHistory">History API URL (optional)</label>
-  <input id="inHistory" placeholder="https://watermeter-logger.you.workers.dev" inputmode="url">
-  <div class="hint">If you've deployed the always-on logger, paste its base URL here to backfill readings you missed while the app was closed. Leave blank to skip.</div>
-  <label for="inAcct">History username</label>
+  <h2>Sign in</h2>
+  <label for="inAcct">Username</label>
   <input id="inAcct" autocomplete="username" inputmode="email">
-  <label for="inAcctPass">History password</label>
+  <label for="inAcctPass">Password</label>
   <div class="pw-wrap">
     <input id="inAcctPass" type="password" autocomplete="current-password">
     <button type="button" class="pw-toggle" id="acctPwToggle" aria-label="Show password">
@@ -297,7 +270,38 @@
       </svg>
     </button>
   </div>
-  <div class="hint">The username and password you were given for the history logger — this is what decides which meters you see. The app swaps them for a token that lasts 30 days and renews itself, so you shouldn't have to type this again. <span id="acctState"></span></div>
+  <div class="hint">This is what decides which meters you see. The app swaps it for a token that lasts 30 days and renews itself, so you shouldn't have to sign in again. <span id="acctState"></span></div>
+  <label for="inHistory">Server URL</label>
+  <input id="inHistory" placeholder="https://watermeter-logger.you.workers.dev" inputmode="url">
+  <div class="hint">The base URL of your deployed logger.</div>
+  <label for="inK">Liters per pulse (K-factor)</label>
+  <input id="inK" inputmode="decimal" placeholder="1.0">
+  <div class="hint">Check the meter's spec plate — commonly 0.5, 1, or 10 L per pulse. <span id="kFor"></span></div>
+
+  <h2>Live (optional)</h2>
+  <label for="inUrl">Broker WebSocket URL</label>
+  <input id="inUrl" placeholder="ws://192.168.1.100:9001" inputmode="url">
+  <div class="hint">Optional — the app works from Sign in alone. Add this for instant live updates over MQTT; without it you'll still see history. Browsers use MQTT over WebSockets — enable a websockets listener on your broker (see guide). Use wss:// if the page is served over https.</div>
+  <label for="inTopic">Topic</label>
+  <input id="inTopic" placeholder="home/water/+/data">
+  <div class="hint">The <code>+</code> wildcard matches every meter, so one connection keeps them all live and switching between them is instant. Name a single meter instead if you'd rather see only that one.</div>
+  <label for="inUser">Broker username (optional)</label>
+  <input id="inUser" autocomplete="off">
+  <label for="inPass">Broker password (optional)</label>
+  <div class="pw-wrap">
+    <input id="inPass" type="password" autocomplete="off">
+    <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">
+      <svg id="pwIconShow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <svg id="pwIconHide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.4 20.4 0 0 1-2.68 3.9M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+        <path d="M1 1l22 22"/>
+      </svg>
+    </button>
+  </div>
+
   <div class="dlg-actions">
     <button id="cancelBtn" type="button">Cancel</button>
     <button id="saveBtn" type="button">Save &amp; connect</button>
@@ -931,7 +935,7 @@ async function login() {
       // views report the refusal rather than looping.
       settings.token = ""; settings.tokenExp = 0;
       store.set("settings", settings);
-      console.warn(`Sign-in refused (HTTP ${res.status}) — check the history username and password in Set up.`);
+      console.warn(`Sign-in refused (HTTP ${res.status}) — check the username and password in Set up.`);
       return false;
     }
     const data = await res.json();
@@ -1002,10 +1006,10 @@ async function backfillHistory() {
     setReadings(merged.length > MAX_READINGS ? merged.slice(-MAX_READINGS) : merged);
     renderAll();
   } catch (err) {
-    // Non-fatal — the app still works fine on live MQTT data alone. The
+    // Non-fatal — a live MQTT connection still updates the current reading. The
     // Day/Week/Month views surface the reason visibly if it's the sign-in.
     console.warn(err.message === "AUTH"
-      ? "History backfill refused — check the history sign-in in Set up."
+      ? "History backfill refused — check the username and password in Set up."
       : "History backfill failed:", err);
   }
 }
@@ -1050,7 +1054,7 @@ async function loadView(view) {
   $("chartTitle").textContent = cfg.title;
 
   if (!settings.historyUrl) {
-    $("chartSummary").innerHTML = "Set a History API URL in Set up to see this view.";
+    $("chartSummary").innerHTML = "Sign in under Set up to see this view.";
     aggregateBars = [];
     renderChart();
     return;
@@ -1092,8 +1096,8 @@ async function loadView(view) {
   } catch (err) {
     console.warn("View load failed:", err);
     $("chartSummary").textContent = err.message === "AUTH"
-      ? "History sign-in missing or wrong — fix it in Set up."
-      : "Couldn't load history — check the History API URL.";
+      ? "Sign-in missing or wrong — fix it in Set up."
+      : "Couldn't load history — check the Server URL in Set up.";
     aggregateBars = [];
     renderChart();
   }
