@@ -42,9 +42,14 @@ build step and no package manager.
 ## Talking to the Worker
 
 The history login is a username and password, exchanged for a token that
-lasts 30 days and renews itself. The token travels in the `X-API-Key` header,
-never the query string, so it stays out of server logs and browser history.
-Changing the login invalidates any token held for the old one.
+lasts 30 days and renews itself. **There is no API key** — the header is
+still *named* `X-API-Key` for compatibility, but what it carries is a session
+token, and nothing else authenticates. Renaming it would mean changing the
+Worker and every deployed app at the same moment, for no gain.
+
+The token goes in a header rather than the query string so it stays out of
+server logs and browser history. Changing the login invalidates any token
+held for the old one.
 
 Two responses mean "fix the login" rather than "fix the URL": **401** (wrong
 or expired) and **503** (the Worker has no accounts configured). Asking for a
