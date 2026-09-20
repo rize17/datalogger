@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Medivac ETA v1.0</title>
+
+<!-- Add-to-Home-Screen support -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#07131d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Medivac ETA">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+  :root {
+    --bg: #07131d;
+    --panel: #0d1f2d;
+    --panel-edge: #16324a;
+    --ink: #d7e8f2;
+    --ink-dim: #6d8ba0;
+    --aqua: #38c8e8;
+    --aqua-deep: #1596b8;
+    --amber: #e8b638;
+    --ok: #4fd08a;
+    --err: #e86a5e;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 50% -200px, #0e2a3d 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    padding: max(env(safe-area-inset-top), 12px) 14px calc(env(safe-area-inset-bottom) + 28px);
+    max-width: 560px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 2px 12px; gap: 10px;
+  }
+  header h1 {
+    font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase;
+    font-weight: 600; color: var(--ink-dim);
+  }
+  header h1 .version {
+    font-size: 0.62rem; letter-spacing: 0.04em; text-transform: none;
+    font-weight: 500; color: var(--aqua-deep); margin-left: 6px;
+    vertical-align: middle;
+  }
+  #tzBtn {
+    background: none; border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    border-radius: 10px; padding: 6px 10px; font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  #tzBtn b { color: var(--aqua); font-weight: 650; }
+
+  /* ---------- tabs ---------- */
+  .view-tabs {
+    display: flex; gap: 4px; margin-bottom: 12px;
+    background: #081420; border: 1px solid var(--panel-edge);
+    border-radius: 10px; padding: 3px;
+  }
+  .view-tab {
+    flex: 1; padding: 9px 4px; border: none; background: none;
+    color: var(--ink-dim); font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 0.04em; border-radius: 7px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .view-tab.active { background: var(--aqua-deep); color: #04121a; }
+
+  /* ---------- panels + form ---------- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  }
+  .panel > h2 {
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim); font-weight: 600; margin-bottom: 10px;
+  }
+  label {
+    display: block; font-size: 0.7rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); margin: 12px 0 4px;
+  }
+  .panel > label:first-of-type { margin-top: 0; }
+  input, select, textarea {
+    width: 100%; background: #081420; color: var(--ink);
+    border: 1px solid var(--panel-edge); border-radius: 8px;
+    padding: 10px; font-size: 1rem; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--aqua-deep); border-color: transparent;
+  }
+  input.bad { border-color: var(--err); }
+  .mono {
+    font-family: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .grid2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+  .hint { font-size: 0.7rem; color: var(--ink-dim); margin-top: 5px; line-height: 1.45; }
+  .hint.good { color: var(--aqua); }
+  .hint.warn { color: var(--amber); }
+  .hint.bad { color: var(--err); }
+
+  /* ---------- results ---------- */
+  .headline {
+    background: linear-gradient(180deg, #0f2436, #0a1a28);
+    border: 1px solid var(--panel-edge); border-radius: 18px;
+    padding: 16px 16px 14px; margin-bottom: 12px; text-align: center;
+  }
+  .headline .k {
+    font-size: 0.7rem; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .headline .big {
+    margin-top: 8px; font-size: clamp(1.9rem, 9vw, 2.6rem); font-weight: 700;
+    line-height: 1; color: var(--aqua); text-shadow: 0 0 14px rgba(56,200,232,0.4);
+    font-variant-numeric: tabular-nums;
+  }
+  .headline .big small { font-size: 0.42em; color: var(--ink-dim); font-weight: 500; margin-left: 4px; }
+  .headline .sub { margin-top: 9px; font-size: 0.8rem; color: var(--ink); }
+  .headline .sub b { color: var(--amber); font-weight: 650; }
+
+  .leg {
+    border-top: 1px solid var(--panel-edge); padding: 12px 2px 2px; margin-top: 12px;
+  }
+  .leg:first-of-type { border-top: none; padding-top: 2px; margin-top: 0; }
+  .leg .name {
+    font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 7px;
+  }
+  .leg .name b { color: var(--ink); font-weight: 650; letter-spacing: 0.06em; }
+  .leg .figs { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  .leg .eta {
+    font-size: 1.45rem; font-weight: 650; color: var(--aqua);
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .leg .run { font-size: 0.9rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .leg .dist { font-size: 0.85rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .leg .at {
+    margin-top: 6px; font-size: 0.78rem; color: var(--ink-dim);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .leg .at .mono { color: var(--ink); }
+  .leg.inside .eta { color: var(--ok); font-size: 1.1rem; }
+
+  .copy-chip {
+    background: none; border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    border-radius: 7px; padding: 3px 8px; font-size: 0.66rem;
+    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+  }
+  .copy-chip:hover { color: var(--ink); }
+  .copy-chip.done { color: var(--ok); border-color: rgba(79,208,138,0.5); }
+
+  #trackWrap { height: 106px; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  details.panel > summary {
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim); font-weight: 600; cursor: pointer; list-style: none;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary::after { content: "+"; font-size: 1rem; color: var(--aqua-deep); }
+  details.panel[open] > summary::after { content: "–"; }
+  details.panel[open] > summary { margin-bottom: 10px; }
+
+  button.primary {
+    width: 100%; padding: 13px; border-radius: 12px; border: none;
+    background: var(--aqua-deep); color: #04121a; font-size: 0.9rem;
+    font-weight: 650; cursor: pointer; letter-spacing: 0.02em;
+  }
+  button.primary.done { background: var(--ok); }
+  button.ghost {
+    width: 100%; padding: 10px; border-radius: 10px; background: none;
+    border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    font-size: 0.78rem; cursor: pointer; margin-top: 10px;
+  }
+  button.danger { border-color: rgba(232,106,94,0.4); color: var(--err); }
+
+  /* ---------- destinations ---------- */
+  .dest {
+    background: #081420; border: 1px solid var(--panel-edge);
+    border-radius: 12px; padding: 12px; margin-bottom: 8px;
+  }
+  .dest .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .dest .nm { font-size: 0.95rem; font-weight: 650; }
+  .dest .co { margin-top: 4px; font-size: 0.78rem; color: var(--aqua); }
+  .dest .note { margin-top: 4px; font-size: 0.72rem; color: var(--ink-dim); }
+  .dest .acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .dest .acts button {
+    background: none; border: 1px solid var(--panel-edge); color: var(--ink-dim);
+    border-radius: 7px; padding: 5px 9px; font-size: 0.68rem; cursor: pointer;
+  }
+  .dest .acts button.del { border-color: rgba(232,106,94,0.35); color: var(--err); }
+  .empty { font-size: 0.8rem; color: var(--ink-dim); text-align: center; padding: 18px 0; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Medivac ETA<span class="version">v1.0</span></h1>
+  <button id="tzBtn" type="button" title="Switch between local time and UTC">
+    <b id="tzName">LOCAL</b> <span id="clock" class="mono">--:--</span>
+  </button>
+</header>
+
+<nav class="view-tabs" id="pageTabs">
+  <button class="view-tab active" type="button" data-page="calc">Calculate</button>
+  <button class="view-tab" type="button" data-page="dest">Destinations</button>
+</nav>
+
+<!-- ======================= CALCULATE ======================= -->
+<main id="pageCalc">
+
+  <section class="panel">
+    <h2>The job</h2>
+
+    <label for="destSel">Destination</label>
+    <select id="destSel"></select>
+    <div class="hint mono" id="destEcho"></div>
+
+    <label for="inPos">Ship's position</label>
+    <input id="inPos" spellcheck="false" autocapitalize="characters"
+           placeholder="33.6833° S, 10.1050° E">
+    <div class="hint" id="posEcho">Type it however MarineTraffic shows it — degrees,
+      degrees and minutes, or minutes and seconds, with or without the symbols.</div>
+
+    <div class="grid2">
+      <div>
+        <label for="inSpeed">Speed (kt)</label>
+        <input id="inSpeed" inputmode="decimal" placeholder="12.5">
+      </div>
+      <div>
+        <label for="inAge">Position age (min)</label>
+        <input id="inAge" inputmode="decimal" placeholder="0">
+      </div>
+    </div>
+    <div class="hint" id="ageEcho">How long ago MarineTraffic received that position.
+      The ship is carried forward from it at the speed above.</div>
+
+    <div class="grid2">
+      <div>
+        <label for="inCog">Ship's course (°)</label>
+        <input id="inCog" inputmode="decimal" placeholder="optional">
+      </div>
+      <div>
+        <label for="inRings">Range rings (nm)</label>
+        <input id="inRings" inputmode="numeric" placeholder="100, 80">
+      </div>
+    </div>
+    <div class="hint" id="cogEcho">Course is optional — it's only used to check the ship
+      really is steaming at the destination.</div>
+  </section>
+
+  <div id="results"></div>
+
+  <section class="panel">
+    <h2>Track</h2>
+    <div id="trackWrap"><canvas id="track"></canvas></div>
+  </section>
+
+  <details class="panel" id="assetPanel">
+    <summary>Response asset (optional)</summary>
+    <div class="grid2">
+      <div>
+        <label for="inAsset">Cruise speed (kt)</label>
+        <input id="inAsset" inputmode="decimal" placeholder="120">
+      </div>
+      <div>
+        <label for="inPrep">Time to launch (min)</label>
+        <input id="inPrep" inputmode="decimal" placeholder="45">
+      </div>
+    </div>
+    <label for="baseSel">Flying from</label>
+    <select id="baseSel"></select>
+    <div class="hint">Latest launch times work back from when the ship reaches each ring,
+      so you know how long you've still got before you have to go.</div>
+    <div id="assetOut"></div>
+  </details>
+
+  <button class="primary" id="copyBtn" type="button">Copy brief</button>
+
+  <details class="panel" style="margin-top:12px">
+    <summary>What this assumes</summary>
+    <div class="hint">
+      Distances are great-circle (shortest path over the earth) in nautical miles, which is
+      what a tape measure in Google Earth gives you.<br><br>
+      Every ETA assumes the ship holds the speed you entered and steams straight at the
+      destination. It doesn't know about traffic separation schemes, weather routing, or the
+      ship slowing down — so treat it the way you'd treat MarineTraffic's own ETA, and redo it
+      when you get a fresh position.<br><br>
+      A range ring is measured from the destination, not from wherever you're flying out of,
+      unless you pick the same place for both.
+    </div>
+  </details>
+</main>
+
+<!-- ======================= DESTINATIONS ======================= -->
+<main id="pageDest" style="display:none">
+  <section class="panel">
+    <h2 id="destFormTitle">Add a destination</h2>
+    <label for="dName">Name</label>
+    <input id="dName" placeholder="Cape Town Port">
+    <label for="dPos">Position</label>
+    <input id="dPos" spellcheck="false" placeholder="33° 53.880′ S, 018° 25.620′ E">
+    <div class="hint" id="dPosEcho"></div>
+    <label for="dNote">Note (optional)</label>
+    <input id="dNote" placeholder="harbour entrance">
+    <div class="grid2" style="margin-top:14px">
+      <button class="primary" id="dSave" type="button">Save</button>
+      <button class="ghost" id="dCancel" type="button" style="margin-top:0">Cancel</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Saved</h2>
+    <div id="destList"></div>
+    <button class="ghost" id="dRestore" type="button">Restore the built-in list</button>
+    <div class="hint">The built-in positions are harbour entrances taken from published
+      port coordinates and rounded — check each one against your own chart before you rely
+      on it, and edit it here if it's out by more than you'd like.</div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* ---------- storage (localStorage with in-memory fallback) ---------- */
+const store = (() => {
+  let mem = {};
+  let ok = false;
+  try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); ok = true; } catch (_) {}
+  return {
+    get(k, d) {
+      try { const v = ok ? localStorage.getItem(k) : mem[k]; return v == null ? d : JSON.parse(v); }
+      catch (_) { return d; }
+    },
+    set(k, v) {
+      try { const s = JSON.stringify(v); if (ok) localStorage.setItem(k, s); else mem[k] = s; } catch (_) {}
+    }
+  };
+})();
+
+/* ================= geometry ================= */
+/* Mean earth radius, in nautical miles. A nautical mile is 1852 m by
+   definition, so this is 6371008.8 m / 1852. */
+const R_NM = 3440.0647;
+const rad = d => d * Math.PI / 180;
+const deg = r => r * 180 / Math.PI;
+
+function distanceNm(a, b) {
+  const p1 = rad(a.lat), p2 = rad(b.lat);
+  const dp = p2 - p1, dl = rad(b.lon - a.lon);
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function bearingDeg(a, b) {
+  const p1 = rad(a.lat), p2 = rad(b.lat), dl = rad(b.lon - a.lon);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/* The point you reach by running `nm` along the great circle that leaves
+   `from` on bearing `brg` — used to place the ring crossings on the track. */
+function along(from, brg, nm) {
+  const d = nm / R_NM, t = rad(brg), p1 = rad(from.lat), l1 = rad(from.lon);
+  const sp2 = Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(t);
+  const p2 = Math.asin(Math.min(1, Math.max(-1, sp2)));
+  const l2 = l1 + Math.atan2(Math.sin(t) * Math.sin(d) * Math.cos(p1),
+                             Math.cos(d) - Math.sin(p1) * sp2);
+  return { lat: deg(p2), lon: ((deg(l2) + 540) % 360) - 180 };
+}
+
+/* ================= coordinates ================= */
+/* Reads a pair of coordinates written more or less any way a chart, a GPS or
+   MarineTraffic writes them: 33.6833° S, 10.1050° E — 33 41.0 S 010 06.3 E —
+   33°41'12"S 10°06'18"E — -33.6833 10.1050. Numbers are grouped by the
+   hemisphere letter that closes (or opens) them; a group of one is degrees,
+   of two is degrees and minutes, of three is degrees, minutes and seconds. */
+function parseCoords(text) {
+  if (!text) return null;
+  const s = String(text).toUpperCase().replace(/[^0-9A-Z.\-+]+/g, " ").trim();
+  if (!s) return null;
+
+  const tokens = s.match(/[NSEW]|[-+]?\d+(?:\.\d+)?/g);
+  if (!tokens) return null;
+
+  const letters = tokens.filter(t => /[NSEW]/.test(t));
+  const groups = [];   // { nums: [...], hemi: "N" | null }
+
+  if (letters.length === 0) {
+    // No hemisphere letters: the only unambiguous form is two signed numbers.
+    const nums = tokens.map(Number);
+    if (nums.length !== 2) return null;
+    groups.push({ nums: [nums[0]], hemi: null }, { nums: [nums[1]], hemi: null });
+  } else {
+    const prefixed = /[NSEW]/.test(tokens[0]);
+    let pending = [], hemi = null;
+    const flush = () => {
+      if (pending.length) groups.push({ nums: pending.map(Number), hemi });
+      pending = []; hemi = null;
+    };
+    for (const t of tokens) {
+      if (/[NSEW]/.test(t)) {
+        if (prefixed) { flush(); hemi = t; } else { hemi = t; flush(); }
+      } else {
+        pending.push(t);
+      }
+    }
+    flush();
+  }
+  if (groups.length !== 2) return null;
+
+  const valueOf = g => {
+    const n = g.nums;
+    if (!n.length || n.length > 3) return null;
+    if (n.some(v => !isFinite(v))) return null;
+    if (n.slice(1).some(v => v < 0 || v >= 60)) return null;   // minutes/seconds
+    const v = Math.abs(n[0]) + (n[1] || 0) / 60 + (n[2] || 0) / 3600;
+    if (g.hemi) return (g.hemi === "S" || g.hemi === "W") ? -v : v;
+    return n[0] < 0 ? -v : v;
+  };
+
+  let a = valueOf(groups[0]), b = valueOf(groups[1]);
+  if (a === null || b === null) return null;
+
+  // The letters say which is which; without them, latitude comes first.
+  let lat, lon;
+  const isLat = g => g.hemi === "N" || g.hemi === "S";
+  const isLon = g => g.hemi === "E" || g.hemi === "W";
+  if (isLat(groups[0]) && !isLat(groups[1]))      { lat = a; lon = b; }
+  else if (isLon(groups[0]) && !isLon(groups[1])) { lon = a; lat = b; }
+  else if (isLat(groups[1]) && !groups[0].hemi)   { lat = b; lon = a; }
+  else if (isLon(groups[1]) && !groups[0].hemi)   { lon = b; lat = a; }
+  else if (groups[0].hemi || groups[1].hemi)      { return null; }  // N and N, E and W…
+  else                                            { lat = a; lon = b; }
+
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+
+/* Degrees and decimal minutes — how a chart, a GPS and a flight crew write it. */
+function fmtDDM(pos) {
+  const one = (v, pos_, neg, width) => {
+    const h = v < 0 ? neg : pos_;
+    v = Math.abs(v);
+    let d = Math.floor(v), m = (v - d) * 60;
+    if (m >= 59.9995) { m = 0; d += 1; }   // don't print 33°60.000′
+    return String(d).padStart(width, "0") + "°" +
+           m.toFixed(3).padStart(6, "0") + "′" + h;
+  };
+  return one(pos.lat, "N", "S", 2) + " " + one(pos.lon, "E", "W", 3);
+}
+const fmtDD = pos => pos.lat.toFixed(4) + "° " + (pos.lat < 0 ? "S" : "N") + ", " +
+                     pos.lon.toFixed(4) + "° " + (pos.lon < 0 ? "W" : "E");
+
+/* ================= time ================= */
+let useUTC = store.get("medivac.utc", false);
+
+function fmtClock(date, showDay) {
+  const p = n => String(n).padStart(2, "0");
+  const H = useUTC ? date.getUTCHours() : date.getHours();
+  const M = useUTC ? date.getUTCMinutes() : date.getMinutes();
+  let out = p(H) + ":" + p(M);
+  if (showDay) {
+    const now = new Date();
+    const dayOf = d => useUTC
+      ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+      : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const days = Math.round((dayOf(date) - dayOf(now)) / 86400000);
+    if (days !== 0) {
+      const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const nm = names[useUTC ? date.getUTCDay() : date.getDay()];
+      const dd = useUTC ? date.getUTCDate() : date.getDate();
+      out += " " + nm + " " + dd + (days > 1 ? " (+" + days + "d)" : "");
+    }
+  }
+  return out + (useUTC ? "Z" : "");
+}
+
+function fmtRun(hours) {
+  if (!isFinite(hours) || hours < 0) return "—";
+  let mins = Math.round(hours * 60);
+  const d = Math.floor(mins / 1440); mins -= d * 1440;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  const hm = h + "h " + String(m).padStart(2, "0") + "m";
+  return d ? d + "d " + hm : hm;
+}
+
+function tzLabel() {
+  if (useUTC) return "UTC";
+  const off = -new Date().getTimezoneOffset();
+  const s = off < 0 ? "-" : "+";
+  const a = Math.abs(off);
+  const h = Math.floor(a / 60), m = a % 60;
+  return "UTC" + s + h + (m ? ":" + String(m).padStart(2, "0") : "");
+}
+
+/* ================= destinations ================= */
+/* Harbour entrances, rounded to the nearest tenth of a minute. They're a
+   starting point, not a survey — they're editable for that reason. */
+const BUILT_IN = [
+  { name: "Cape Town Port",   lat: -33.8980, lon: 18.4270, note: "harbour entrance" },
+  { name: "Saldanha Bay",     lat: -33.016667, lon: 17.966667, note: "harbour entrance" },
+  { name: "Mossel Bay",       lat: -34.1800, lon: 22.1450, note: "harbour entrance" },
+  { name: "George Airport",   lat: -34.0056, lon: 22.3789, note: "FAGG" },
+  { name: "Gqeberha (PE)",    lat: -33.963333, lon: 25.630000, note: "harbour entrance" },
+  { name: "Ngqura (Coega)",   lat: -33.780000, lon: 25.691667, note: "harbour entrance" },
+  { name: "East London Port", lat: -33.025000, lon: 27.908333, note: "harbour entrance" },
+  { name: "Durban Port",      lat: -29.871667, lon: 31.041667, note: "harbour entrance" },
+  { name: "Richards Bay",     lat: -28.8050, lon: 32.0800, note: "harbour entrance" }
+];
+
+let dests = store.get("medivac.dests", null);
+if (!Array.isArray(dests) || !dests.length) { dests = BUILT_IN.slice(); saveDests(); }
+function saveDests() { store.set("medivac.dests", dests); }
+
+let editing = -1;   // index being edited on the Destinations tab, -1 = adding
+
+/* ================= inputs ================= */
+const $ = id => document.getElementById(id);
+const FIELDS = ["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset", "inPrep"];
+
+function loadInputs() {
+  const saved = store.get("medivac.inputs", {});
+  FIELDS.forEach(f => { if (saved[f] != null) $(f).value = saved[f]; });
+  if (!$("inRings").value) $("inRings").value = "100, 80";
+  if (saved.assetOpen) $("assetPanel").open = true;
+}
+function saveInputs() {
+  const out = { assetOpen: $("assetPanel").open };
+  FIELDS.forEach(f => out[f] = $(f).value);
+  out.dest = $("destSel").value;
+  out.base = $("baseSel").value;
+  store.set("medivac.inputs", out);
+}
+
+function num(id) {
+  const v = parseFloat(String($(id).value).replace(",", "."));
+  return isFinite(v) ? v : null;
+}
+
+function rings() {
+  return String($("inRings").value)
+    .split(/[^0-9.]+/)
+    .map(parseFloat)
+    .filter(v => isFinite(v) && v > 0)
+    .sort((a, b) => b - a)
+    .slice(0, 6);
+}
+
+function renderDestSelects() {
+  const saved = store.get("medivac.inputs", {});
+  [["destSel", saved.dest], ["baseSel", saved.base]].forEach(([id, want]) => {
+    const sel = $(id);
+    const keep = sel.value || want;
+    sel.innerHTML = "";
+    if (id === "baseSel") {
+      const o = document.createElement("option");
+      o.value = "__same"; o.textContent = "Same as the destination";
+      sel.appendChild(o);
+    }
+    dests.forEach((d, i) => {
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = d.name;
+      sel.appendChild(o);
+    });
+    if (keep != null && sel.querySelector('option[value="' + CSS.escape(keep) + '"]')) sel.value = keep;
+  });
+}
+
+/* ================= the calculation ================= */
+let model = null;   // everything the results, the track and the brief are drawn from
+
+function compute() {
+  const dest = dests[parseInt($("destSel").value, 10)] || null;
+  const ship = parseCoords($("inPos").value);
+  const speed = num("inSpeed");
+  const age = Math.max(0, num("inAge") || 0);
+  const cog = num("inCog");
+
+  const notes = [];
+  if (!dest) { model = null; return; }
+  if (!ship) { model = null; return; }
+
+  const reported = { lat: ship.lat, lon: ship.lon };
+  const distAtReport = distanceNm(reported, dest);
+  const brgAtReport = bearingDeg(reported, dest);
+
+  // Carry the ship forward from the position report to now.
+  const run = speed && speed > 0 ? speed * (age / 60) : 0;
+  const now = { lat: reported.lat, lon: reported.lon };
+  let moved = 0;
+  if (run > 0) {
+    moved = Math.min(run, distAtReport);
+    const p = along(reported, brgAtReport, moved);
+    now.lat = p.lat; now.lon = p.lon;
+  }
+
+  const dist = distanceNm(now, dest);
+  const brg = bearingDeg(now, dest);
+  const t0 = Date.now();
+
+  const legs = rings().map(r => {
+    const togo = dist - r;
+    const at = togo > 0 ? along(now, brg, togo) : null;
+    return {
+      name: r + " nm ring",
+      ring: r,
+      togo: Math.max(0, togo),
+      inside: togo <= 0,
+      hours: speed > 0 ? Math.max(0, togo) / speed : null,
+      at
+    };
+  });
+  legs.push({
+    name: dest.name, ring: 0, togo: dist, inside: false,
+    hours: speed > 0 ? dist / speed : null, at: { lat: dest.lat, lon: dest.lon }
+  });
+
+  if (speed == null || speed <= 0) notes.push(["warn", "Enter the ship's speed to get times."]);
+  else if (speed > 40) notes.push(["warn", speed.toFixed(1) + " kt is fast for a ship — check it."]);
+  if (cog != null) {
+    const off = Math.abs(((cog - brg + 540) % 360) - 180);
+    if (off > 15) notes.push(["warn", "The ship's course is " + Math.round(off) +
+      "° off the bearing to " + dest.name + " (" + pad3(brg) +
+      "°). It isn't steaming straight there, so these times are optimistic."]);
+    else notes.push(["good", "Course checks out — within " + Math.round(off) +
+      "° of the bearing to " + dest.name + "."]);
+  }
+  if (ship.lat > 0) notes.push(["warn", "That latitude is north of the equator. " +
+    "If you meant southern Africa it wants an S."]);
+  if (dist > 3000) notes.push(["warn", "That's " + Math.round(dist) +
+    " nm from " + dest.name + " — worth re-reading the coordinates."]);
+
+  // Optional flying leg.
+  const aSpeed = num("inAsset"), prep = Math.max(0, num("inPrep") || 0);
+  let asset = null;
+  if (aSpeed && aSpeed > 0) {
+    const baseVal = $("baseSel").value;
+    const base = baseVal === "__same" ? dest : (dests[parseInt(baseVal, 10)] || dest);
+    const baseDist = distanceNm(now, base);
+    const prepH = prep / 60;
+    let meetH = null, meetFromBase = null, meetPos = null;
+    if (speed > 0) {
+      /* The ship runs down her own track towards the destination — not towards
+         the airfield — so when the two aren't the same place there's no neat
+         formula for where they meet. Find the first moment the aircraft can
+         reach her: it can if the flying time to where she'll be by then fits
+         in the time since take-off. That only gets easier as she closes, so
+         bisection lands on the earliest one. */
+      const shipAt = t => {
+        const run = Math.min(speed * t, dist);
+        return run > 0 ? along(now, brg, run) : { lat: now.lat, lon: now.lon };
+      };
+      const canMake = t => (t - prepH) * aSpeed - distanceNm(base, shipAt(t));
+      let lo = prepH, hi = dist / speed + distanceNm(base, dest) / aSpeed + prepH;
+      if (canMake(lo) >= 0) hi = lo;
+      else for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2;
+        if (canMake(mid) >= 0) hi = mid; else lo = mid;
+      }
+      meetH = hi;
+      meetPos = shipAt(meetH);
+      meetFromBase = distanceNm(base, meetPos);
+    }
+    asset = {
+      base, baseDist, speed: aSpeed, prep,
+      meetH, meetFromBase, meetPos,
+      legs: legs.filter(l => !l.inside).map(l => {
+        const outbound = distanceNm(base, l.at || dest);
+        const flyH = outbound / aSpeed;
+        return {
+          name: l.ring ? l.ring + " nm ring" : dest.name,
+          outbound,
+          flyH,
+          launchH: l.hours == null ? null : l.hours - flyH - prepH
+        };
+      }).filter(l => l.outbound > 1)
+    };
+  }
+
+  model = { dest, reported, now, moved, age, dist, distAtReport, brg, speed, cog, legs, notes, asset, t0 };
+}
+
+const pad3 = v => String(Math.round(v) % 360).padStart(3, "0");
+const at = h => new Date(model.t0 + h * 3600000);
+
+/* ================= rendering ================= */
+function render() {
+  compute();
+  renderResults();
+  renderAsset();
+  drawTrack();
+}
+
+function renderResults() {
+  const box = $("results");
+
+  // Echo what we read back, so a mistyped digit is obvious before it's used.
+  const dest = dests[parseInt($("destSel").value, 10)];
+  $("destEcho").textContent = dest ? fmtDDM(dest) + (dest.note ? "  · " + dest.note : "") : "";
+
+  const ship = parseCoords($("inPos").value);
+  const posEcho = $("posEcho");
+  if (!$("inPos").value.trim()) {
+    posEcho.className = "hint";
+    posEcho.textContent = "Type it however MarineTraffic shows it — degrees, degrees and " +
+      "minutes, or minutes and seconds, with or without the symbols.";
+    $("inPos").classList.remove("bad");
+  } else if (!ship) {
+    posEcho.className = "hint bad";
+    posEcho.textContent = "Can't read that. Try 33.6833 S, 10.1050 E — or 33 41.0 S 010 06.3 E.";
+    $("inPos").classList.add("bad");
+  } else {
+    posEcho.className = "hint good";
+    posEcho.innerHTML = '<span class="mono">' + fmtDDM(ship) + "</span> · " + fmtDD(ship);
+    $("inPos").classList.remove("bad");
+  }
+
+  if (!model) {
+    box.innerHTML = '<div class="panel"><div class="empty">' +
+      (ship ? "Pick a destination." : "Enter the ship's position to start.") +
+      "</div></div>";
+    $("ageEcho").className = "hint";
+    return;
+  }
+
+  // Position age
+  const ageEcho = $("ageEcho");
+  if (model.age > 0 && model.moved > 0) {
+    ageEcho.className = "hint good";
+    ageEcho.textContent = "That position is " + fmtRun(model.age / 60) + " old, so the ship is " +
+      "carried " + model.moved.toFixed(1) + " nm further on — everything below is from now.";
+  } else if (model.age > 0) {
+    ageEcho.className = "hint";
+    ageEcho.textContent = "Add the speed and the ship will be carried forward from that position.";
+  } else {
+    ageEcho.className = "hint";
+    ageEcho.textContent = "How long ago MarineTraffic received that position. " +
+      "The ship is carried forward from it at the speed above.";
+  }
+
+  $("cogEcho").className = "hint";
+  $("cogEcho").textContent = "Course is optional — it's only used to check the ship really is " +
+    "steaming at the destination.";
+
+  const html = [];
+
+  // Headline: the destination leg.
+  const main = model.legs[model.legs.length - 1];
+  html.push('<div class="headline">');
+  html.push('<div class="k">Distance to ' + esc(model.dest.name) + "</div>");
+  html.push('<div class="big">' + model.dist.toFixed(1) + "<small>nm</small></div>");
+  if (main.hours != null) {
+    html.push('<div class="sub">Alongside <b>' + fmtClock(at(main.hours), true) +
+      "</b> · " + fmtRun(main.hours) + " at " + model.speed.toFixed(1) + " kt</div>");
+  } else {
+    html.push('<div class="sub">Bearing ' + pad3(model.brg) + "° — add a speed for times</div>");
+  }
+  html.push("</div>");
+
+  // Each ring, then the destination again with its crossing position.
+  html.push('<section class="panel"><h2>Ranges</h2>');
+  model.legs.forEach((l, i) => {
+    html.push('<div class="leg' + (l.inside ? " inside" : "") + '">');
+    html.push('<div class="name">' + (l.ring ? "In to the <b>" + l.ring + " nm</b> ring"
+                                             : "Alongside <b>" + esc(model.dest.name) + "</b>") + "</div>");
+    html.push('<div class="figs">');
+    if (l.inside) {
+      html.push('<div class="eta">Already inside</div>');
+    } else if (l.hours != null) {
+      html.push('<div class="eta">' + fmtClock(at(l.hours), true) + "</div>");
+      html.push('<div class="run">' + fmtRun(l.hours) + "</div>");
+    } else {
+      html.push('<div class="eta">—</div>');
+    }
+    html.push('<div class="dist">' + l.togo.toFixed(1) + " nm to run</div>");
+    html.push("</div>");
+    if (l.at && !l.inside) {
+      const c = fmtDDM(l.at);
+      html.push('<div class="at"><span class="mono">' + c + "</span>" +
+        '<button class="copy-chip" type="button" data-copy="' + esc(c) + '">Copy</button></div>');
+    }
+    html.push("</div>");
+  });
+  html.push("</section>");
+
+  if (model.notes.length) {
+    html.push('<section class="panel"><h2>Check</h2>');
+    model.notes.forEach(([k, t]) => html.push('<div class="hint ' + k + '">' + esc(t) + "</div>"));
+    html.push('<div class="hint">Bearing to ' + esc(model.dest.name) + " is " +
+      pad3(model.brg) + "°.</div>");
+    html.push("</section>");
+  }
+
+  box.innerHTML = html.join("");
+}
+
+function renderAsset() {
+  const out = $("assetOut");
+  if (!model || !model.asset) {
+    out.innerHTML = model
+      ? '<div class="hint">Enter a cruise speed to work out launch times.</div>'
+      : "";
+    return;
+  }
+  const a = model.asset;
+  const html = [];
+
+  if (a.meetH != null) {
+    html.push('<div class="headline" style="margin-top:12px">');
+    html.push('<div class="k">Earliest meeting</div>');
+    html.push('<div class="big">' + fmtClock(at(a.meetH), true) + "</div>");
+    html.push('<div class="sub"><b>' + a.meetFromBase.toFixed(0) + " nm</b> out from " +
+      esc(a.base.name) + " · launching in " + fmtRun(a.prep / 60) + "</div>");
+    if (a.meetPos) {
+      const c = fmtDDM(a.meetPos);
+      html.push('<div class="sub mono" style="font-size:0.75rem;color:var(--ink-dim)">' + c + "</div>");
+    }
+    html.push("</div>");
+    const widest = model.legs.reduce((m, l) => Math.max(m, l.ring), 0);
+    if (widest && a.meetFromBase > widest && a.base === model.dest) {
+      html.push('<div class="hint warn">That meeting point is ' + a.meetFromBase.toFixed(0) +
+        " nm out \u2014 further than your " + widest + " nm ring. If that's beyond " +
+        "what you can fly, the launch times below are the ones that matter.</div>");
+    }
+  }
+
+  html.push('<div style="margin-top:4px">');
+  a.legs.forEach(l => {
+    html.push('<div class="leg">');
+    html.push('<div class="name">Meeting at <b>' + esc(l.name) + "</b></div>");
+    html.push('<div class="figs">');
+    if (l.launchH == null) {
+      html.push('<div class="eta">—</div>');
+    } else if (l.launchH < 0) {
+      html.push('<div class="eta" style="color:var(--err);font-size:1.1rem">' +
+        fmtRun(-l.launchH) + " too late</div>");
+    } else {
+      html.push('<div class="eta">' + fmtClock(at(l.launchH), true) + "</div>");
+      html.push('<div class="run">launch in ' + fmtRun(l.launchH) + "</div>");
+    }
+    html.push('<div class="dist">' + l.outbound.toFixed(0) + " nm out · " +
+      fmtRun(l.flyH) + " flying</div>");
+    html.push("</div></div>");
+  });
+  html.push("</div>");
+  out.innerHTML = html.join("");
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---------- the track, drawn by hand on a canvas ---------- */
+function drawTrack() {
+  const cv = $("track"), wrap = $("trackWrap");
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const css = getComputedStyle(document.documentElement);
+  const dim = css.getPropertyValue("--ink-dim").trim() || "#6d8ba0";
+  const aqua = css.getPropertyValue("--aqua").trim() || "#38c8e8";
+  const amber = css.getPropertyValue("--amber").trim() || "#e8b638";
+  g.font = "600 10px -apple-system, Segoe UI, Roboto, sans-serif";
+  g.textAlign = "center";
+
+  if (!model) {
+    g.fillStyle = dim; g.textBaseline = "middle";
+    g.fillText("The ship's run in appears here", w / 2, h / 2);
+    return;
+  }
+
+  const L = 18, Rt = w - 18, y = h / 2;
+  const D = Math.max(model.dist, 0.001);
+  const x = nm => Rt - (nm / D) * (Rt - L);   // nm from the destination -> pixels
+
+  /* Labels are placed into the first row where they don't touch anything
+     already written — on a long run in, the rings bunch up near the port. */
+  const rows = { up: [[], []], down: [[], []] };
+  const Y = { up: [y - 15, y - 28], down: [y + 13, y + 26] };
+  function label(text, cx, side, color) {
+    const half = g.measureText(text).width / 2 + 3;
+    const px = Math.min(Math.max(cx, L - 6 + half), Rt + 6 - half);
+    for (let r = 0; r < rows[side].length; r++) {
+      if (rows[side][r].every(([a, b]) => px + half < a || px - half > b)) {
+        rows[side][r].push([px - half, px + half]);
+        g.fillStyle = color;
+        g.textBaseline = side === "up" ? "bottom" : "top";
+        g.fillText(text, px, Y[side][r]);
+        return true;
+      }
+    }
+    return false;   // no room — the figure is in the rows above anyway
+  }
+
+  g.strokeStyle = "#16324a"; g.lineWidth = 3; g.lineCap = "round";
+  g.beginPath(); g.moveTo(L, y); g.lineTo(Rt, y); g.stroke();
+
+  // Ship, then destination — they get first claim on a label row.
+  g.fillStyle = amber;
+  g.beginPath();
+  g.moveTo(L - 6, y - 6); g.lineTo(L + 7, y); g.lineTo(L - 6, y + 6); g.closePath(); g.fill();
+  label(model.dist.toFixed(0) + " nm", L + 4, "up", amber);
+
+  g.fillStyle = aqua;
+  g.beginPath(); g.arc(Rt, y, 5, 0, Math.PI * 2); g.fill();
+  label(model.dest.name, Rt - 4, "down", dim);
+
+  // Range rings
+  model.legs.forEach(l => {
+    if (!l.ring) return;
+    const px = x(l.ring);
+    if (px < L - 1 || px > Rt + 1) return;
+    g.strokeStyle = aqua; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(px, y - 9); g.lineTo(px, y + 9); g.stroke();
+    label(l.ring + " nm", px, "up", aqua);
+  });
+
+  // Where the aircraft meets her, when it flies from the destination
+  if (model.asset && model.asset.meetFromBase != null && model.asset.base === model.dest) {
+    const px = x(model.asset.meetFromBase);
+    if (px >= L && px <= Rt) {
+      g.strokeStyle = amber; g.lineWidth = 2;
+      g.beginPath(); g.arc(px, y, 7, 0, Math.PI * 2); g.stroke();
+      label("meet", px, "down", amber);
+    }
+  }
+}
+
+/* ---------- the brief, as text you can paste into a message ---------- */
+function briefText() {
+  if (!model) return "";
+  const L = [];
+  const stamp = fmtClock(new Date(model.t0), false);
+  L.push("MEDIVAC ETA — worked at " + stamp + " " + tzLabel());
+  L.push("Vessel   " + fmtDDM(model.now) +
+    (model.moved > 0 ? "  (from a position " + fmtRun(model.age / 60) + " old)" : ""));
+  L.push("Dest     " + model.dest.name + "  " + fmtDDM(model.dest));
+  L.push("Run in   " + model.dist.toFixed(1) + " nm, bearing " + pad3(model.brg) + "°" +
+    (model.speed > 0 ? ", " + model.speed.toFixed(1) + " kt" : ""));
+  L.push("");
+  const nameW = Math.max(...model.legs.map(l => (l.ring ? l.ring + " nm ring" : model.dest.name).length)) + 2;
+  const times = model.legs.map(l => l.inside ? "already inside"
+    : l.hours == null ? "no speed" : fmtClock(at(l.hours), true) + "  " + fmtRun(l.hours));
+  const timeW = Math.max(...times.map(t => t.length)) + 2;
+  model.legs.forEach((l, i) => {
+    const label = (l.ring ? l.ring + " nm ring" : model.dest.name).padEnd(nameW, " ");
+    if (l.inside) { L.push(label + "already inside"); return; }
+    L.push(label + times[i].padEnd(timeW, " ") +
+      (l.togo.toFixed(1) + " nm").padStart(9, " ") +
+      (l.at ? "   " + fmtDDM(l.at) : ""));
+  });
+  if (model.asset && model.asset.meetH != null) {
+    const a = model.asset;
+    L.push("");
+    L.push("Flying from " + a.base.name + " at " + a.speed.toFixed(0) + " kt, " +
+      a.prep + " min to launch");
+    L.push("Earliest meeting " + fmtClock(at(a.meetH), true) + "  " +
+      a.meetFromBase.toFixed(0) + " nm out  " + (a.meetPos ? fmtDDM(a.meetPos) : ""));
+    a.legs.forEach(l => {
+      if (l.launchH == null) return;
+      L.push("  meet at " + (l.name + " ").padEnd(16, " ") +
+        (l.launchH < 0 ? "too late by " + fmtRun(-l.launchH)
+                       : "launch " + fmtClock(at(l.launchH), true) + " (in " + fmtRun(l.launchH) + ")"));
+    });
+  }
+  L.push("");
+  L.push("Great-circle, assuming she holds course and speed.");
+  return L.join("\n");
+}
+
+async function copyText(text, btn, label) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (_) {
+    // Clipboard API needs a secure context and isn't always granted.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+      document.body.appendChild(ta); ta.select();
+      ok = document.execCommand("copy");
+      ta.remove();
+    } catch (_) {}
+  }
+  const was = btn.textContent;
+  btn.textContent = ok ? (label || "Copied") : "Press and hold to copy";
+  btn.classList.toggle("done", ok);
+  setTimeout(() => { btn.textContent = was; btn.classList.remove("done"); }, 1800);
+}
+
+/* ================= destinations tab ================= */
+function renderDestList() {
+  const box = $("destList");
+  if (!dests.length) {
+    box.innerHTML = '<div class="empty">Nothing saved yet.</div>';
+    return;
+  }
+  box.innerHTML = dests.map((d, i) =>
+    '<div class="dest"><div class="top"><div>' +
+      '<div class="nm">' + esc(d.name) + "</div>" +
+      '<div class="co mono">' + fmtDDM(d) + "</div>" +
+      (d.note ? '<div class="note">' + esc(d.note) + "</div>" : "") +
+    '</div><div class="acts">' +
+      '<button type="button" data-edit="' + i + '">Edit</button>' +
+      '<button type="button" class="del" data-del="' + i + '">Delete</button>' +
+    "</div></div></div>").join("");
+}
+
+function startEdit(i) {
+  editing = i;
+  const d = dests[i];
+  $("destFormTitle").textContent = "Edit destination";
+  $("dName").value = d.name;
+  $("dPos").value = fmtDDM(d);
+  $("dNote").value = d.note || "";
+  $("dPosEcho").textContent = "";
+  $("dName").focus();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function resetForm() {
+  editing = -1;
+  $("destFormTitle").textContent = "Add a destination";
+  $("dName").value = ""; $("dPos").value = ""; $("dNote").value = "";
+  $("dPosEcho").className = "hint"; $("dPosEcho").textContent = "";
+  $("dPos").classList.remove("bad");
+}
+
+function saveDest() {
+  const name = $("dName").value.trim();
+  const pos = parseCoords($("dPos").value);
+  const echo = $("dPosEcho");
+  if (!name) { echo.className = "hint bad"; echo.textContent = "Give it a name."; return; }
+  if (!pos) {
+    echo.className = "hint bad";
+    echo.textContent = "Can't read that position.";
+    $("dPos").classList.add("bad");
+    return;
+  }
+  const rec = { name, lat: pos.lat, lon: pos.lon, note: $("dNote").value.trim() };
+  if (editing >= 0) dests[editing] = rec; else dests.push(rec);
+  saveDests();
+  resetForm();
+  renderDestList();
+  renderDestSelects();
+  render();
+}
+
+/* ================= wiring ================= */
+loadInputs();
+renderDestSelects();
+renderDestList();
+
+$("pageTabs").addEventListener("click", e => {
+  const b = e.target.closest(".view-tab");
+  if (!b) return;
+  document.querySelectorAll(".view-tab").forEach(t => t.classList.toggle("active", t === b));
+  const calc = b.dataset.page === "calc";
+  $("pageCalc").style.display = calc ? "" : "none";
+  $("pageDest").style.display = calc ? "none" : "";
+  if (calc) render();
+});
+
+["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset", "inPrep"].forEach(id =>
+  $(id).addEventListener("input", () => { saveInputs(); render(); }));
+["destSel", "baseSel"].forEach(id =>
+  $(id).addEventListener("change", () => { saveInputs(); render(); }));
+$("assetPanel").addEventListener("toggle", saveInputs);
+
+$("tzBtn").addEventListener("click", () => {
+  useUTC = !useUTC;
+  store.set("medivac.utc", useUTC);
+  tick();
+  render();
+});
+
+$("copyBtn").addEventListener("click", e => {
+  if (!model) return;
+  copyText(briefText(), e.currentTarget, "Copied — paste it anywhere");
+});
+
+$("results").addEventListener("click", e => {
+  const b = e.target.closest("[data-copy]");
+  if (b) copyText(b.dataset.copy, b, "Copied");
+});
+
+$("dSave").addEventListener("click", saveDest);
+$("dCancel").addEventListener("click", resetForm);
+$("dPos").addEventListener("input", () => {
+  const p = parseCoords($("dPos").value);
+  const echo = $("dPosEcho");
+  if (!$("dPos").value.trim()) { echo.className = "hint"; echo.textContent = ""; $("dPos").classList.remove("bad"); }
+  else if (p) { echo.className = "hint good"; echo.textContent = fmtDDM(p); $("dPos").classList.remove("bad"); }
+  else { echo.className = "hint bad"; echo.textContent = "Can't read that yet."; $("dPos").classList.add("bad"); }
+});
+$("destList").addEventListener("click", e => {
+  const ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+  if (ed) startEdit(parseInt(ed.dataset.edit, 10));
+  if (del) {
+    const i = parseInt(del.dataset.del, 10);
+    if (!confirm("Delete " + dests[i].name + "?")) return;
+    dests.splice(i, 1);
+    if (editing === i) resetForm();
+    saveDests(); renderDestList(); renderDestSelects(); render();
+  }
+});
+$("dRestore").addEventListener("click", () => {
+  if (!confirm("Put the built-in ports back? Anything you've added stays.")) return;
+  BUILT_IN.forEach(b => {
+    if (!dests.some(d => d.name.toLowerCase() === b.name.toLowerCase())) dests.push(b);
+  });
+  saveDests(); renderDestList(); renderDestSelects(); render();
+});
+
+window.addEventListener("resize", drawTrack);
+
+/* The clock in the header, and the ETAs with it, so the times on screen stay
+   honest while the job is open. */
+function tick() {
+  $("tzName").textContent = useUTC ? "UTC" : "LOCAL";
+  $("clock").textContent = fmtClock(new Date(), false);
+}
+tick();
+setInterval(() => { tick(); render(); }, 30000);
+
+render();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () =>
+    navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>

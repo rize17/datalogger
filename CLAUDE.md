@@ -12,6 +12,12 @@ Everything is `2-web-app/index.html` — UI, chart and MQTT client in one file.
 Alongside it: `sw.js`, `manifest.webmanifest`, and two icons. There is no
 build step and no package manager.
 
+`2-web-app/medivac/` is a **different app** that happens to share the site: a
+ship-medivac ETA calculator, served at `/medivac/`. It has its own
+`index.html`, `sw.js`, manifest, icons and version, talks to nothing, and
+shares no code with the water meter. Changing one never means touching the
+other — including the version bump below, which is the water meter's alone.
+
 ## Conventions that matter
 
 - **Don't add CDN scripts.** Chart.js was removed because ad blockers and
