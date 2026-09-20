@@ -1,6 +1,6 @@
 // Minimal offline shell cache. The calculator needs nothing from the network
 // once it's loaded, so this is what makes it usable on a phone with no signal.
-const CACHE = "medivac-v1.1";
+const CACHE = "medivac-v1.2";
 const ASSETS = ["./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {

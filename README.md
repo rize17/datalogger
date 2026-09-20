@@ -59,10 +59,10 @@ speed, and it gives you the distance and ETA to the port and to each range
 ring, plus the position she'll be at when she crosses each one. There's a tab
 for the destinations you use often, seeded with the South African ports. The
 rings default to 100 and 80 nm — the outer limit and the one you'd normally
-work to. Put in the cruise speed of whatever you're flying (110 kt unless you
-change it) and it also works back to the latest time you can lift and still
-meet her at each ring. It doesn't allow for getting the machine ready; that
-comes off your own clock, on top.
+work to, and the only places you can meet her. Put in the cruise speed of
+whatever you're flying (110 kt unless you change it) and it also works back to
+the latest time you can lift and still meet her at each ring. It doesn't allow
+for getting the machine ready; that comes off your own clock, on top.
 
 Distances are great-circle in nautical miles. Everything assumes she holds the
 speed and course you gave it, so redo it when a fresh position comes in. It
@@ -74,7 +74,7 @@ nothing with the water meter app but the domain. Bump *its* version in four
 places together, the same way: the `<title>`, the `.version` span, `CACHE` in
 `medivac/sw.js`, and *Current* below.
 
-Current: **medivac v1.1**.
+Current: **medivac v1.2**.
 
 ## Deploying
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Medivac ETA v1.1</title>
+<title>Medivac ETA v1.2</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -209,7 +209,7 @@
 <body>
 
 <header>
-  <h1>Medivac ETA<span class="version">v1.1</span></h1>
+  <h1>Medivac ETA<span class="version">v1.2</span></h1>
   <button id="tzBtn" type="button" title="Switch between local time and UTC">
     <b id="tzName">LOCAL</b> <span id="clock" class="mono">--:--</span>
   </button>
@@ -249,18 +249,9 @@
     <div class="hint" id="ageEcho">How long ago MarineTraffic received that position.
       The ship is carried forward from it at the speed above.</div>
 
-    <div class="grid2">
-      <div>
-        <label for="inCog">Ship's course (°)</label>
-        <input id="inCog" inputmode="decimal" placeholder="optional">
-      </div>
-      <div>
-        <label for="inRings">Range rings (nm)</label>
-        <input id="inRings" inputmode="numeric" placeholder="100, 80">
-      </div>
-    </div>
-    <div class="hint" id="cogEcho">Course is optional — it's only used to check the ship
-      really is steaming at the destination.</div>
+    <label for="inRings">Range rings (nm)</label>
+    <input id="inRings" inputmode="numeric" placeholder="100, 80">
+    <div class="hint">The ranges you can meet her at.</div>
   </section>
 
   <div id="results"></div>
@@ -292,7 +283,8 @@
       Every ETA assumes the ship holds the speed you entered and steams straight at the
       destination. It doesn't know about traffic separation schemes, weather routing, or the
       ship slowing down — so treat it the way you'd treat MarineTraffic's own ETA, and redo it
-      when you get a fresh position.<br><br>
+      when you get a fresh position. If she plainly isn't heading for the port, none of this
+      applies and the chart and a ruler are still the answer.<br><br>
       A range ring is measured from the destination, not from wherever you're flying out of,
       unless you pick the same place for both.
     </div>
@@ -526,7 +518,7 @@ let editing = -1;   // index being edited on the Destinations tab, -1 = adding
 
 /* ================= inputs ================= */
 const $ = id => document.getElementById(id);
-const FIELDS = ["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset"];
+const FIELDS = ["inPos", "inSpeed", "inAge", "inRings", "inAsset"];
 
 function loadInputs() {
   const saved = store.get("medivac.inputs", {});
@@ -585,7 +577,6 @@ function compute() {
   const ship = parseCoords($("inPos").value);
   const speed = num("inSpeed");
   const age = Math.max(0, num("inAge") || 0);
-  const cog = num("inCog");
 
   const notes = [];
   if (!dest) { model = null; return; }
@@ -628,14 +619,6 @@ function compute() {
 
   if (speed == null || speed <= 0) notes.push(["warn", "Enter the ship's speed to get times."]);
   else if (speed > 40) notes.push(["warn", speed.toFixed(1) + " kt is fast for a ship — check it."]);
-  if (cog != null) {
-    const off = Math.abs(((cog - brg + 540) % 360) - 180);
-    if (off > 15) notes.push(["warn", "The ship's course is " + Math.round(off) +
-      "° off the bearing to " + dest.name + " (" + pad3(brg) +
-      "°). It isn't steaming straight there, so these times are optimistic."]);
-    else notes.push(["good", "Course checks out — within " + Math.round(off) +
-      "° of the bearing to " + dest.name + "."]);
-  }
   if (ship.lat > 0) notes.push(["warn", "That latitude is north of the equator. " +
     "If you meant southern Africa it wants an S."]);
   if (dist > 3000) notes.push(["warn", "That's " + Math.round(dist) +
@@ -647,47 +630,24 @@ function compute() {
   if (aSpeed && aSpeed > 0) {
     const baseVal = $("baseSel").value;
     const base = baseVal === "__same" ? dest : (dests[parseInt(baseVal, 10)] || dest);
-    const baseDist = distanceNm(now, base);
-    let meetH = null, meetFromBase = null, meetPos = null;
-    if (speed > 0) {
-      /* The ship runs down her own track towards the destination — not towards
-         the airfield — so when the two aren't the same place there's no neat
-         formula for where they meet. Find the first moment the aircraft can
-         reach her, lifting now: it can if the flying time to where she'll be
-         by then fits in the time since lift. That only gets easier as she
-         closes, so bisection lands on the earliest one. */
-      const shipAt = t => {
-        const run = Math.min(speed * t, dist);
-        return run > 0 ? along(now, brg, run) : { lat: now.lat, lon: now.lon };
-      };
-      const canMake = t => t * aSpeed - distanceNm(base, shipAt(t));
-      let lo = 0, hi = dist / speed + distanceNm(base, dest) / aSpeed;
-      if (canMake(lo) >= 0) hi = lo;
-      else for (let i = 0; i < 80; i++) {
-        const mid = (lo + hi) / 2;
-        if (canMake(mid) >= 0) hi = mid; else lo = mid;
-      }
-      meetH = hi;
-      meetPos = shipAt(meetH);
-      meetFromBase = distanceNm(base, meetPos);
-    }
+    /* The meeting happens on a ring and nowhere else, so a lift time is simply
+       when she gets there, less the flying time out to it. */
     asset = {
-      base, baseDist, speed: aSpeed,
-      meetH, meetFromBase, meetPos,
-      legs: legs.filter(l => !l.inside).map(l => {
+      base, speed: aSpeed,
+      legs: legs.filter(l => l.ring > 0 && !l.inside).map(l => {
         const outbound = distanceNm(base, l.at || dest);
         const flyH = outbound / aSpeed;
         return {
-          name: l.ring ? l.ring + " nm ring" : dest.name,
+          name: l.ring + " nm ring",
           outbound,
           flyH,
           liftH: l.hours == null ? null : l.hours - flyH
         };
-      }).filter(l => l.outbound > 1)
+      })
     };
   }
 
-  model = { dest, reported, now, moved, age, dist, distAtReport, brg, speed, cog, legs, notes, asset, t0 };
+  model = { dest, reported, now, moved, age, dist, distAtReport, brg, speed, legs, notes, asset, t0 };
 }
 
 const pad3 = v => String(Math.round(v) % 360).padStart(3, "0");
@@ -748,10 +708,6 @@ function renderResults() {
       "The ship is carried forward from it at the speed above.";
   }
 
-  $("cogEcho").className = "hint";
-  $("cogEcho").textContent = "Course is optional — it's only used to check the ship really is " +
-    "steaming at the destination.";
-
   const html = [];
 
   // Headline: the destination leg.
@@ -793,13 +749,13 @@ function renderResults() {
   });
   html.push("</section>");
 
-  if (model.notes.length) {
-    html.push('<section class="panel"><h2>Check</h2>');
-    model.notes.forEach(([k, t]) => html.push('<div class="hint ' + k + '">' + esc(t) + "</div>"));
-    html.push('<div class="hint">Bearing to ' + esc(model.dest.name) + " is " +
-      pad3(model.brg) + "°.</div>");
-    html.push("</section>");
-  }
+  html.push('<section class="panel"><h2>Check</h2>');
+  model.notes.forEach(([k, t]) => html.push('<div class="hint ' + k + '">' + esc(t) + "</div>"));
+  html.push('<div class="hint">She bears ' + pad3(model.brg) + "° to " +
+    esc(model.dest.name) + ". If that isn\u2019t roughly the course she\u2019s making, " +
+    "she isn\u2019t steaming straight there and none of this holds \u2014 measure it " +
+    "on the chart instead.</div>");
+  html.push("</section>");
 
   box.innerHTML = html.join("");
 }
@@ -815,23 +771,10 @@ function renderAsset() {
   const a = model.asset;
   const html = [];
 
-  if (a.meetH != null) {
-    html.push('<div class="headline" style="margin-top:12px">');
-    html.push('<div class="k">If you lift now</div>');
-    html.push('<div class="big">' + fmtClock(at(a.meetH), true) + "</div>");
-    html.push('<div class="sub">you meet her <b>' + a.meetFromBase.toFixed(0) +
-      " nm</b> out from " + esc(a.base.name) + "</div>");
-    if (a.meetPos) {
-      const c = fmtDDM(a.meetPos);
-      html.push('<div class="sub mono" style="font-size:0.75rem;color:var(--ink-dim)">' + c + "</div>");
-    }
-    html.push("</div>");
-    const widest = model.legs.reduce((m, l) => Math.max(m, l.ring), 0);
-    if (widest && a.meetFromBase > widest && a.base === model.dest) {
-      html.push('<div class="hint warn">' + a.meetFromBase.toFixed(0) +
-        " nm out \u2014 past your " + widest + " nm range. She has to close first: " +
-        "the lift times below are the ones that matter.</div>");
-    }
+  if (!a.legs.length) {
+    out.innerHTML = '<div class="hint">She\u2019s inside every ring already \u2014 ' +
+      "nothing left to wait for.</div>";
+    return;
   }
 
   html.push('<div style="margin-top:4px">');
@@ -931,15 +874,6 @@ function drawTrack() {
     label(l.ring + " nm", px, "up", aqua);
   });
 
-  // Where the aircraft meets her, when it flies from the destination
-  if (model.asset && model.asset.meetFromBase != null && model.asset.base === model.dest) {
-    const px = x(model.asset.meetFromBase);
-    if (px >= L && px <= Rt) {
-      g.strokeStyle = amber; g.lineWidth = 2;
-      g.beginPath(); g.arc(px, y, 7, 0, Math.PI * 2); g.stroke();
-      label("meet", px, "down", amber);
-    }
-  }
 }
 
 /* ---------- the brief, as text you can paste into a message ---------- */
@@ -965,12 +899,10 @@ function briefText() {
       (l.togo.toFixed(1) + " nm").padStart(9, " ") +
       (l.at ? "   " + fmtDDM(l.at) : ""));
   });
-  if (model.asset && model.asset.meetH != null) {
+  if (model.asset && model.asset.legs.length) {
     const a = model.asset;
     L.push("");
     L.push("Flying from " + a.base.name + " at " + a.speed.toFixed(0) + " kt");
-    L.push("Lift now, meet her " + fmtClock(at(a.meetH), true) + "  " +
-      a.meetFromBase.toFixed(0) + " nm out  " + (a.meetPos ? fmtDDM(a.meetPos) : ""));
     a.legs.forEach(l => {
       if (l.liftH == null) return;
       L.push("  meet at " + (l.name + " ").padEnd(16, " ") +
@@ -1076,7 +1008,7 @@ $("pageTabs").addEventListener("click", e => {
   if (calc) render();
 });
 
-["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset"].forEach(id =>
+["inPos", "inSpeed", "inAge", "inRings", "inAsset"].forEach(id =>
   $(id).addEventListener("input", () => { saveInputs(); render(); }));
 ["destSel", "baseSel"].forEach(id =>
   $(id).addEventListener("change", () => { saveInputs(); render(); }));
