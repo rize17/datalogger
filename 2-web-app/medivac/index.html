@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Medivac ETA v1.0</title>
+<title>Medivac ETA v1.1</title>
 
 <!-- Add-to-Home-Screen support -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -209,7 +209,7 @@
 <body>
 
 <header>
-  <h1>Medivac ETA<span class="version">v1.0</span></h1>
+  <h1>Medivac ETA<span class="version">v1.1</span></h1>
   <button id="tzBtn" type="button" title="Switch between local time and UTC">
     <b id="tzName">LOCAL</b> <span id="clock" class="mono">--:--</span>
   </button>
@@ -272,20 +272,13 @@
 
   <details class="panel" id="assetPanel">
     <summary>Response asset (optional)</summary>
-    <div class="grid2">
-      <div>
-        <label for="inAsset">Cruise speed (kt)</label>
-        <input id="inAsset" inputmode="decimal" placeholder="120">
-      </div>
-      <div>
-        <label for="inPrep">Time to launch (min)</label>
-        <input id="inPrep" inputmode="decimal" placeholder="45">
-      </div>
-    </div>
+    <label for="inAsset">Cruise speed (kt)</label>
+    <input id="inAsset" inputmode="decimal" placeholder="110">
     <label for="baseSel">Flying from</label>
     <select id="baseSel"></select>
-    <div class="hint">Latest launch times work back from when the ship reaches each ring,
-      so you know how long you've still got before you have to go.</div>
+    <div class="hint">A lift time is the latest you can be off the ground and still meet her
+      at that ring. Getting the machine ready is your own business — this doesn't
+      allow for it.</div>
     <div id="assetOut"></div>
   </details>
 
@@ -533,12 +526,13 @@ let editing = -1;   // index being edited on the Destinations tab, -1 = adding
 
 /* ================= inputs ================= */
 const $ = id => document.getElementById(id);
-const FIELDS = ["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset", "inPrep"];
+const FIELDS = ["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset"];
 
 function loadInputs() {
   const saved = store.get("medivac.inputs", {});
   FIELDS.forEach(f => { if (saved[f] != null) $(f).value = saved[f]; });
   if (!$("inRings").value) $("inRings").value = "100, 80";
+  if (!$("inAsset").value) $("inAsset").value = "110";
   if (saved.assetOpen) $("assetPanel").open = true;
 }
 function saveInputs() {
@@ -648,27 +642,26 @@ function compute() {
     " nm from " + dest.name + " — worth re-reading the coordinates."]);
 
   // Optional flying leg.
-  const aSpeed = num("inAsset"), prep = Math.max(0, num("inPrep") || 0);
+  const aSpeed = num("inAsset");
   let asset = null;
   if (aSpeed && aSpeed > 0) {
     const baseVal = $("baseSel").value;
     const base = baseVal === "__same" ? dest : (dests[parseInt(baseVal, 10)] || dest);
     const baseDist = distanceNm(now, base);
-    const prepH = prep / 60;
     let meetH = null, meetFromBase = null, meetPos = null;
     if (speed > 0) {
       /* The ship runs down her own track towards the destination — not towards
          the airfield — so when the two aren't the same place there's no neat
          formula for where they meet. Find the first moment the aircraft can
-         reach her: it can if the flying time to where she'll be by then fits
-         in the time since take-off. That only gets easier as she closes, so
-         bisection lands on the earliest one. */
+         reach her, lifting now: it can if the flying time to where she'll be
+         by then fits in the time since lift. That only gets easier as she
+         closes, so bisection lands on the earliest one. */
       const shipAt = t => {
         const run = Math.min(speed * t, dist);
         return run > 0 ? along(now, brg, run) : { lat: now.lat, lon: now.lon };
       };
-      const canMake = t => (t - prepH) * aSpeed - distanceNm(base, shipAt(t));
-      let lo = prepH, hi = dist / speed + distanceNm(base, dest) / aSpeed + prepH;
+      const canMake = t => t * aSpeed - distanceNm(base, shipAt(t));
+      let lo = 0, hi = dist / speed + distanceNm(base, dest) / aSpeed;
       if (canMake(lo) >= 0) hi = lo;
       else for (let i = 0; i < 80; i++) {
         const mid = (lo + hi) / 2;
@@ -679,7 +672,7 @@ function compute() {
       meetFromBase = distanceNm(base, meetPos);
     }
     asset = {
-      base, baseDist, speed: aSpeed, prep,
+      base, baseDist, speed: aSpeed,
       meetH, meetFromBase, meetPos,
       legs: legs.filter(l => !l.inside).map(l => {
         const outbound = distanceNm(base, l.at || dest);
@@ -688,7 +681,7 @@ function compute() {
           name: l.ring ? l.ring + " nm ring" : dest.name,
           outbound,
           flyH,
-          launchH: l.hours == null ? null : l.hours - flyH - prepH
+          liftH: l.hours == null ? null : l.hours - flyH
         };
       }).filter(l => l.outbound > 1)
     };
@@ -815,7 +808,7 @@ function renderAsset() {
   const out = $("assetOut");
   if (!model || !model.asset) {
     out.innerHTML = model
-      ? '<div class="hint">Enter a cruise speed to work out launch times.</div>'
+      ? '<div class="hint">Enter a cruise speed to work out lift times.</div>'
       : "";
     return;
   }
@@ -824,10 +817,10 @@ function renderAsset() {
 
   if (a.meetH != null) {
     html.push('<div class="headline" style="margin-top:12px">');
-    html.push('<div class="k">Earliest meeting</div>');
+    html.push('<div class="k">If you lift now</div>');
     html.push('<div class="big">' + fmtClock(at(a.meetH), true) + "</div>");
-    html.push('<div class="sub"><b>' + a.meetFromBase.toFixed(0) + " nm</b> out from " +
-      esc(a.base.name) + " · launching in " + fmtRun(a.prep / 60) + "</div>");
+    html.push('<div class="sub">you meet her <b>' + a.meetFromBase.toFixed(0) +
+      " nm</b> out from " + esc(a.base.name) + "</div>");
     if (a.meetPos) {
       const c = fmtDDM(a.meetPos);
       html.push('<div class="sub mono" style="font-size:0.75rem;color:var(--ink-dim)">' + c + "</div>");
@@ -835,9 +828,9 @@ function renderAsset() {
     html.push("</div>");
     const widest = model.legs.reduce((m, l) => Math.max(m, l.ring), 0);
     if (widest && a.meetFromBase > widest && a.base === model.dest) {
-      html.push('<div class="hint warn">That meeting point is ' + a.meetFromBase.toFixed(0) +
-        " nm out \u2014 further than your " + widest + " nm ring. If that's beyond " +
-        "what you can fly, the launch times below are the ones that matter.</div>");
+      html.push('<div class="hint warn">' + a.meetFromBase.toFixed(0) +
+        " nm out \u2014 past your " + widest + " nm range. She has to close first: " +
+        "the lift times below are the ones that matter.</div>");
     }
   }
 
@@ -846,14 +839,14 @@ function renderAsset() {
     html.push('<div class="leg">');
     html.push('<div class="name">Meeting at <b>' + esc(l.name) + "</b></div>");
     html.push('<div class="figs">');
-    if (l.launchH == null) {
+    if (l.liftH == null) {
       html.push('<div class="eta">—</div>');
-    } else if (l.launchH < 0) {
+    } else if (l.liftH < 0) {
       html.push('<div class="eta" style="color:var(--err);font-size:1.1rem">' +
-        fmtRun(-l.launchH) + " too late</div>");
+        fmtRun(-l.liftH) + " too late</div>");
     } else {
-      html.push('<div class="eta">' + fmtClock(at(l.launchH), true) + "</div>");
-      html.push('<div class="run">launch in ' + fmtRun(l.launchH) + "</div>");
+      html.push('<div class="eta">' + fmtClock(at(l.liftH), true) + "</div>");
+      html.push('<div class="run">lift in ' + fmtRun(l.liftH) + "</div>");
     }
     html.push('<div class="dist">' + l.outbound.toFixed(0) + " nm out · " +
       fmtRun(l.flyH) + " flying</div>");
@@ -975,15 +968,14 @@ function briefText() {
   if (model.asset && model.asset.meetH != null) {
     const a = model.asset;
     L.push("");
-    L.push("Flying from " + a.base.name + " at " + a.speed.toFixed(0) + " kt, " +
-      a.prep + " min to launch");
-    L.push("Earliest meeting " + fmtClock(at(a.meetH), true) + "  " +
+    L.push("Flying from " + a.base.name + " at " + a.speed.toFixed(0) + " kt");
+    L.push("Lift now, meet her " + fmtClock(at(a.meetH), true) + "  " +
       a.meetFromBase.toFixed(0) + " nm out  " + (a.meetPos ? fmtDDM(a.meetPos) : ""));
     a.legs.forEach(l => {
-      if (l.launchH == null) return;
+      if (l.liftH == null) return;
       L.push("  meet at " + (l.name + " ").padEnd(16, " ") +
-        (l.launchH < 0 ? "too late by " + fmtRun(-l.launchH)
-                       : "launch " + fmtClock(at(l.launchH), true) + " (in " + fmtRun(l.launchH) + ")"));
+        (l.liftH < 0 ? "too late by " + fmtRun(-l.liftH)
+                     : "lift by " + fmtClock(at(l.liftH), true) + " (in " + fmtRun(l.liftH) + ")"));
     });
   }
   L.push("");
@@ -1084,7 +1076,7 @@ $("pageTabs").addEventListener("click", e => {
   if (calc) render();
 });
 
-["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset", "inPrep"].forEach(id =>
+["inPos", "inSpeed", "inAge", "inCog", "inRings", "inAsset"].forEach(id =>
   $(id).addEventListener("input", () => { saveInputs(); render(); }));
 ["destSel", "baseSel"].forEach(id =>
   $(id).addEventListener("change", () => { saveInputs(); render(); }));

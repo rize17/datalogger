@@ -57,9 +57,12 @@ Type the ship's position the way MarineTraffic prints it — `33.6833° S,
 10.1050° E`, or degrees and minutes, or degrees minutes seconds — add her
 speed, and it gives you the distance and ETA to the port and to each range
 ring, plus the position she'll be at when she crosses each one. There's a tab
-for the destinations you use often, seeded with the South African ports. If
-you add a cruise speed for whatever you're flying, it also works back to the
-latest time you can launch and still meet her at each ring.
+for the destinations you use often, seeded with the South African ports. The
+rings default to 100 and 80 nm — the outer limit and the one you'd normally
+work to. Put in the cruise speed of whatever you're flying (110 kt unless you
+change it) and it also works back to the latest time you can lift and still
+meet her at each ring. It doesn't allow for getting the machine ready; that
+comes off your own clock, on top.
 
 Distances are great-circle in nautical miles. Everything assumes she holds the
 speed and course you gave it, so redo it when a fresh position comes in. It
@@ -67,11 +70,11 @@ keeps nothing on a server — the destinations and the last job you typed live
 in the browser.
 
 It has its own version, its own service worker and its own icon, and shares
-nothing with the water meter app but the domain. Bump *its* version in three
-places together: the `<title>`, the `.version` span, and `CACHE` in
-`medivac/sw.js`.
+nothing with the water meter app but the domain. Bump *its* version in four
+places together, the same way: the `<title>`, the `.version` span, `CACHE` in
+`medivac/sw.js`, and *Current* below.
 
-Current: **medivac v1.0**.
+Current: **medivac v1.1**.
 
 ## Deploying
 
